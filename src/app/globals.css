@@ -1,0 +1,149 @@
+@import "tailwindcss";
+
+/* PlotHound - Earthy, archival color palette */
+:root {
+  --background: 48 30% 96%; /* Warm cream */
+  --foreground: 30 15% 15%; /* Deep brown text */
+
+  --card: 48 25% 94%;
+  --card-foreground: 30 15% 15%;
+
+  --popover: 48 30% 96%;
+  --popover-foreground: 30 15% 15%;
+
+  --primary: 152 45% 28%; /* Deep forest green */
+  --primary-foreground: 48 30% 96%;
+
+  --secondary: 36 30% 88%;
+  --secondary-foreground: 30 15% 20%;
+
+  --muted: 36 20% 90%;
+  --muted-foreground: 30 10% 45%;
+
+  --accent: 36 55% 45%; /* Warm amber */
+  --accent-foreground: 48 30% 96%;
+
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 36 20% 82%;
+  --input: 36 20% 82%;
+  --ring: 152 45% 28%;
+
+  --radius: 0.5rem;
+
+  /* Confidence colors */
+  --confidence-unlikely: 0 72% 51%;
+  --confidence-possible: 30 80% 55%;
+  --confidence-probable: 48 80% 50%;
+  --confidence-confident: 152 60% 40%;
+}
+
+.dark {
+  --background: 30 15% 10%;
+  --foreground: 48 20% 90%;
+
+  --card: 30 15% 12%;
+  --card-foreground: 48 20% 90%;
+
+  --popover: 30 15% 12%;
+  --popover-foreground: 48 20% 90%;
+
+  --primary: 152 50% 40%;
+  --primary-foreground: 30 15% 10%;
+
+  --secondary: 30 15% 18%;
+  --secondary-foreground: 48 20% 85%;
+
+  --muted: 30 15% 20%;
+  --muted-foreground: 48 15% 60%;
+
+  --accent: 36 55% 50%;
+  --accent-foreground: 30 15% 10%;
+
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 30 15% 25%;
+  --input: 30 15% 25%;
+  --ring: 152 50% 40%;
+}
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius));
+  --radius-lg: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) + 8px);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Custom scrollbar for the archival feel */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}
+
+/* Typography helpers */
+.font-serif {
+  font-family: Georgia, 'Times New Roman', Times, serif;
+}
+
+/* Confidence gauge colors */
+.confidence-unlikely {
+  background-color: hsl(var(--confidence-unlikely));
+}
+
+.confidence-possible {
+  background-color: hsl(var(--confidence-possible));
+}
+
+.confidence-probable {
+  background-color: hsl(var(--confidence-probable));
+}
+
+.confidence-confident {
+  background-color: hsl(var(--confidence-confident));
+}
