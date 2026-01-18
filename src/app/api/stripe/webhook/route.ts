@@ -9,16 +9,96 @@ const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!
 
 // Map Stripe price IDs to subscription tiers
 function getTierFromPriceId(priceId: string): SubscriptionTier {
-  const priceToTier: Record<string, SubscriptionTier> = {
-    [process.env.STRIPE_PRICE_RESEARCHER_MONTHLY || '']: 'researcher',
-    [process.env.STRIPE_PRICE_RESEARCHER_YEARLY || '']: 'researcher',
-    [process.env.STRIPE_PRICE_INVESTIGATOR_MONTHLY || '']: 'investigator',
-    [process.env.STRIPE_PRICE_INVESTIGATOR_YEARLY || '']: 'investigator',
-    [process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY || '']: 'professional',
-    [process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY || '']: 'professional',
+  // Build mapping at runtime to ensure env vars are available
+  const priceToTier: Record<string, SubscriptionTier> = {}
+
+  if (process.env.STRIPE_PRICE_RESEARCHER_MONTHLY) {
+    priceToTier[process.env.STRIPE_PRICE_RESEARCHER_MONTHLY] = 'researcher'
+  }
+  if (process.env.STRIPE_PRICE_RESEARCHER_YEARLY) {
+    priceToTier[process.env.STRIPE_PRICE_RESEARCHER_YEARLY] = 'researcher'
+  }
+  if (process.env.STRIPE_PRICE_INVESTIGATOR_MONTHLY) {
+    priceToTier[process.env.STRIPE_PRICE_INVESTIGATOR_MONTHLY] = 'investigator'
+  }
+  if (process.env.STRIPE_PRICE_INVESTIGATOR_YEARLY) {
+    priceToTier[process.env.STRIPE_PRICE_INVESTIGATOR_YEARLY] = 'investigator'
+  }
+  if (process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY) {
+    priceToTier[process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY] = 'professional'
+  }
+  if (process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY) {
+    priceToTier[process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY] = 'professional'
   }
 
-  return priceToTier[priceId] || 'free'
+  const tier = priceToTier[priceId]
+  if (!tier) {
+    console.warn(`[Stripe Webhook] Unknown price ID: ${priceId}. Known prices:`, Object.keys(priceToTier))
+  }
+  return tier || 'free'
+}
+
+// Helper to update user subscription by customer ID or user ID from metadata
+async function updateUserSubscription(
+  supabase: Awaited<ReturnType<typeof createServiceClient>>,
+  customerId: string,
+  updates: { subscription_tier: SubscriptionTier; stripe_subscription_id: string | null }
+) {
+  // First try to find by stripe_customer_id
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: existingProfile, error: findError } = await (supabase as any)
+    .from('profiles')
+    .select('id')
+    .eq('stripe_customer_id', customerId)
+    .single()
+
+  if (existingProfile) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase as any)
+      .from('profiles')
+      .update(updates)
+      .eq('id', existingProfile.id)
+
+    if (error) {
+      console.error('[Stripe Webhook] Failed to update profile:', error)
+      return false
+    }
+    console.log(`[Stripe Webhook] Updated subscription for profile ${existingProfile.id} to ${updates.subscription_tier}`)
+    return true
+  }
+
+  // Fallback: Get user ID from customer metadata
+  console.log(`[Stripe Webhook] Profile not found by customer ID ${customerId}, checking customer metadata...`)
+  const customer = await stripe.customers.retrieve(customerId)
+
+  if (customer.deleted) {
+    console.error('[Stripe Webhook] Customer was deleted')
+    return false
+  }
+
+  const supabaseUserId = customer.metadata?.supabase_user_id
+  if (!supabaseUserId) {
+    console.error('[Stripe Webhook] No supabase_user_id in customer metadata')
+    return false
+  }
+
+  // Update by user ID and also save the customer ID for future lookups
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any)
+    .from('profiles')
+    .update({
+      ...updates,
+      stripe_customer_id: customerId,
+    })
+    .eq('id', supabaseUserId)
+
+  if (error) {
+    console.error('[Stripe Webhook] Failed to update profile by user ID:', error)
+    return false
+  }
+
+  console.log(`[Stripe Webhook] Updated subscription for user ${supabaseUserId} to ${updates.subscription_tier}`)
+  return true
 }
 
 export async function POST(request: Request) {
@@ -31,9 +111,11 @@ export async function POST(request: Request) {
   try {
     event = stripe.webhooks.constructEvent(body, signature, webhookSecret)
   } catch (err) {
-    console.error('Webhook signature verification failed:', err)
+    console.error('[Stripe Webhook] Signature verification failed:', err)
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
   }
+
+  console.log(`[Stripe Webhook] Received event: ${event.type}`)
 
   const supabase = await createServiceClient()
 
@@ -41,21 +123,19 @@ export async function POST(request: Request) {
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session
+        console.log(`[Stripe Webhook] Checkout completed for customer: ${session.customer}`)
 
         if (session.mode === 'subscription' && session.customer && session.subscription) {
           const subscription = await stripe.subscriptions.retrieve(session.subscription as string)
           const priceId = subscription.items.data[0]?.price.id
           const tier = getTierFromPriceId(priceId)
 
-          // Update user profile
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase as any)
-            .from('profiles')
-            .update({
-              subscription_tier: tier,
-              stripe_subscription_id: subscription.id,
-            })
-            .eq('stripe_customer_id', session.customer as string)
+          console.log(`[Stripe Webhook] Price ID: ${priceId}, Tier: ${tier}`)
+
+          await updateUserSubscription(supabase, session.customer as string, {
+            subscription_tier: tier,
+            stripe_subscription_id: subscription.id,
+          })
         }
         break
       }
@@ -65,42 +145,36 @@ export async function POST(request: Request) {
         const priceId = subscription.items.data[0]?.price.id
         const tier = subscription.status === 'active' ? getTierFromPriceId(priceId) : 'free'
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (supabase as any)
-          .from('profiles')
-          .update({
-            subscription_tier: tier,
-            stripe_subscription_id: subscription.id,
-          })
-          .eq('stripe_customer_id', subscription.customer as string)
+        console.log(`[Stripe Webhook] Subscription updated: status=${subscription.status}, tier=${tier}`)
+
+        await updateUserSubscription(supabase, subscription.customer as string, {
+          subscription_tier: tier,
+          stripe_subscription_id: subscription.id,
+        })
         break
       }
 
       case 'customer.subscription.deleted': {
         const subscription = event.data.object as Stripe.Subscription
+        console.log(`[Stripe Webhook] Subscription deleted for customer: ${subscription.customer}`)
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (supabase as any)
-          .from('profiles')
-          .update({
-            subscription_tier: 'free',
-            stripe_subscription_id: null,
-          })
-          .eq('stripe_customer_id', subscription.customer as string)
+        await updateUserSubscription(supabase, subscription.customer as string, {
+          subscription_tier: 'free',
+          stripe_subscription_id: null,
+        })
         break
       }
 
       case 'invoice.payment_failed': {
         const invoice = event.data.object as Stripe.Invoice
-        // Optionally handle failed payments - could send notification, etc.
-        console.log('Payment failed for customer:', invoice.customer)
+        console.log('[Stripe Webhook] Payment failed for customer:', invoice.customer)
         break
       }
     }
 
     return NextResponse.json({ received: true })
   } catch (error) {
-    console.error('Webhook handler error:', error)
+    console.error('[Stripe Webhook] Handler error:', error)
     return NextResponse.json({ error: 'Webhook handler failed' }, { status: 500 })
   }
 }
