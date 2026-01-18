@@ -128,12 +128,55 @@ IMPORTANT: You must match relationship mentions to actual people in the tree by 
       console.log('[detect-relationships] First relationship:', JSON.stringify(relationships[0], null, 2))
     }
 
+    // Build a lookup map for quick ID validation
+    const ancestorIds = new Set(ancestors.map(a => a.id))
+
+    // Validate and fix relationships where AI might have returned wrong IDs
+    const validatedRelationships: DetectedRelationship[] = relationships.map(rel => {
+      // Check if the personId is valid
+      if (!ancestorIds.has(rel.personId)) {
+        console.log(`[detect-relationships] Invalid personId: ${rel.personId}`)
+        return null
+      }
+
+      // Check father ID
+      if (rel.fatherId && !ancestorIds.has(rel.fatherId)) {
+        console.log(`[detect-relationships] Invalid fatherId: ${rel.fatherId} for person ${rel.personId}`)
+        rel.fatherId = undefined
+      }
+
+      // Check mother ID
+      if (rel.motherId && !ancestorIds.has(rel.motherId)) {
+        console.log(`[detect-relationships] Invalid motherId: ${rel.motherId} for person ${rel.personId}`)
+        rel.motherId = undefined
+      }
+
+      // Filter spouse IDs
+      if (rel.spouseIds && rel.spouseIds.length > 0) {
+        rel.spouseIds = rel.spouseIds.filter(id => {
+          if (!ancestorIds.has(id)) {
+            console.log(`[detect-relationships] Invalid spouseId: ${id} for person ${rel.personId}`)
+            return false
+          }
+          return true
+        })
+      }
+
+      // Only return if there's still something to update
+      if (rel.fatherId || rel.motherId || (rel.spouseIds && rel.spouseIds.length > 0)) {
+        return rel
+      }
+      return null
+    }).filter((r): r is DetectedRelationship => r !== null)
+
+    console.log('[detect-relationships] Valid relationships after filtering:', validatedRelationships.length)
+
     // Update ancestors with detected relationships
     let updatedCount = 0
     const updateClient = await createClient()
     const updatedDetails: string[] = []
 
-    for (const rel of relationships) {
+    for (const rel of validatedRelationships) {
       // Only update if confidence is >= 70%
       if (rel.confidence < 70) continue
 
@@ -155,6 +198,8 @@ IMPORTANT: You must match relationship mentions to actual people in the tree by 
           shouldUpdate = true
           const fatherName = [father.given_names, father.surname].filter(Boolean).join(' ')
           updatedDetails.push(`${ancestorName}'s father: ${fatherName}`)
+        } else {
+          console.log(`[detect-relationships] Father ID ${rel.fatherId} not found in tree for ${ancestorName}`)
         }
       }
       if (rel.motherId && !ancestor.mother_id) {
@@ -165,6 +210,8 @@ IMPORTANT: You must match relationship mentions to actual people in the tree by 
           shouldUpdate = true
           const motherName = [mother.given_names, mother.surname].filter(Boolean).join(' ')
           updatedDetails.push(`${ancestorName}'s mother: ${motherName}`)
+        } else {
+          console.log(`[detect-relationships] Mother ID ${rel.motherId} not found in tree for ${ancestorName}`)
         }
       }
       if (rel.spouseIds && rel.spouseIds.length > 0) {
@@ -221,27 +268,33 @@ IMPORTANT: You must match relationship mentions to actual people in the tree by 
     return NextResponse.json({
       success: true,
       analyzed: ancestors.length,
-      relationshipsDetected: relationships.length,
+      relationshipsDetected: validatedRelationships.length,
+      rawAIDetected: relationships.length,
       updated: updatedCount,
       summary: analysisResult.summary || 'Relationship analysis complete',
       updatedRelationships: updatedDetails,
       debug: {
         ancestorsWithNotes,
         existingRelationships,
+        rawAICount: relationships.length,
+        validatedCount: validatedRelationships.length,
         sampleNotes: ancestors.filter(a => a.notes).slice(0, 3).map(a => ({
           name: [a.given_names, a.surname].filter(Boolean).join(' '),
           notes: a.notes?.substring(0, 150),
           hasParent: !!(a.father_id || a.mother_id)
         })),
-        aiRelationships: relationships.slice(0, 5).map(r => ({
+        aiRelationships: validatedRelationships.slice(0, 5).map(r => ({
           personId: r.personId,
+          personName: ancestors.find(a => a.id === r.personId)?.given_names,
           fatherId: r.fatherId,
+          fatherName: r.fatherId ? ancestors.find(a => a.id === r.fatherId)?.given_names : null,
           motherId: r.motherId,
+          motherName: r.motherId ? ancestors.find(a => a.id === r.motherId)?.given_names : null,
           confidence: r.confidence,
           reasoning: r.reasoning?.substring(0, 100)
         }))
       },
-      details: relationships.filter(r => r.confidence >= 70).map(r => ({
+      details: validatedRelationships.filter(r => r.confidence >= 70).map(r => ({
         person: ancestors.find(a => a.id === r.personId),
         ...r
       }))
