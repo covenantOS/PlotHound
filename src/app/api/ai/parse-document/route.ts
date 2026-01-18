@@ -95,29 +95,42 @@ export async function POST(request: Request) {
       }
     }
 
-    // Build the message for Claude
-    const systemPrompt = `You are a genealogy research assistant. Extract ancestor information from the provided document.
+    // Build the message for Claude - comprehensive extraction prompt
+    const systemPrompt = `You are a thorough genealogy research assistant. Your task is to extract EVERY SINGLE PERSON mentioned in the document, no matter how many there are.
 
-Return a JSON object with:
+CRITICAL INSTRUCTIONS:
+1. Extract EVERY person mentioned - do not skip anyone, even if there are 100+ people
+2. Include ALL generations - from the most recent to the oldest mentioned
+3. For each person, add detailed notes with ANY information found about them
+4. Be thorough - this is the user's family history and every detail matters
+
+Return a JSON object with this EXACT structure:
 {
-  "treeName": "suggested tree name based on content",
+  "treeName": "suggested tree name based on the primary family surname",
   "ancestors": [
     {
-      "givenNames": "first and middle names",
-      "surname": "last name",
-      "birthYear": "YYYY or empty",
-      "birthPlace": "location or empty",
-      "deathYear": "YYYY or empty",
-      "relationship": "one of: Self, Parent, Grandparent, Great-Grandparent, Sibling, Spouse, Child, or Other",
-      "notes": "any additional information found about this person"
+      "givenNames": "first and middle names (use full names when available)",
+      "surname": "last name / family name",
+      "birthYear": "YYYY format or empty string if unknown",
+      "birthPlace": "city, state/region, country if available, or empty string",
+      "deathYear": "YYYY format or empty string if unknown",
+      "deathPlace": "city, state/region, country if available, or empty string",
+      "relationship": "relationship to the first person listed (Self, Parent, Grandparent, Great-Grandparent, Child, Sibling, Spouse, Aunt/Uncle, Cousin, or describe the relationship)",
+      "generation": "number indicating generation (0 for self, 1 for parents, 2 for grandparents, etc.)",
+      "notes": "DETAILED notes including: occupation, cause of death, immigration info, military service, religion, marriage dates, children's names, census records mentioned, any stories or biographical details, source citations if mentioned"
     }
   ],
-  "additionalContext": "any other useful genealogical context from the document"
+  "additionalContext": "any family history context, migration patterns, historical events mentioned, family traditions, or other relevant information not tied to a specific person"
 }
 
-Extract ALL people mentioned with genealogical relevance. Include dates, places, relationships, and any biographical details.
-If you find family relationships, try to determine how people are related.
-Return ONLY valid JSON, no markdown or explanation.`
+IMPORTANT:
+- Extract ALL people, even if there are dozens or hundreds
+- Include spouses, children, siblings, aunts, uncles, cousins - everyone
+- Notes should be comprehensive - include everything mentioned about each person
+- If someone is mentioned multiple times, combine all information into one entry
+- Preserve exact dates when given (not just years)
+- Include maiden names in parentheses if mentioned
+- Return ONLY valid JSON, no markdown code blocks or explanation`
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let content: any
@@ -136,7 +149,7 @@ Return ONLY valid JSON, no markdown or explanation.`
           },
           {
             type: 'text',
-            text: 'Extract all genealogical information from this document. Return JSON as specified.',
+            text: 'Extract ALL genealogical information from this entire document. Include EVERY person mentioned, across ALL generations. Do not skip anyone. Add detailed notes for each person with any information found. Return JSON as specified in your instructions.',
           },
         ]
       } else {
@@ -151,17 +164,17 @@ Return ONLY valid JSON, no markdown or explanation.`
           },
           {
             type: 'text',
-            text: 'Extract all genealogical information from this image. Return JSON as specified.',
+            text: 'Extract ALL genealogical information from this image. Include EVERY person mentioned. Add detailed notes for each person. Return JSON as specified.',
           },
         ]
       }
     } else {
-      content = `Extract genealogical information from the following document:\n\n${textContent}`
+      content = `Extract ALL genealogical information from the following document. Include EVERY person mentioned, no matter how many. Add detailed notes for each person.\n\n${textContent}`
     }
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
+      max_tokens: 16000, // Increased to handle large family trees
       system: systemPrompt,
       messages: [
         {

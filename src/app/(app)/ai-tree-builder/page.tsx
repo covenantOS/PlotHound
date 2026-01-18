@@ -37,7 +37,9 @@ interface SeedAncestor {
   birthYear: string
   birthPlace: string
   deathYear: string
+  deathPlace?: string
   relationship: string
+  generation?: number
   notes?: string
 }
 
@@ -204,7 +206,9 @@ export default function AiTreeBuilderPage() {
           birthYear?: string
           birthPlace?: string
           deathYear?: string
+          deathPlace?: string
           relationship?: string
+          generation?: number
           notes?: string
         }, index: number) => ({
           id: `parsed-${index}-${Date.now()}`,
@@ -213,7 +217,9 @@ export default function AiTreeBuilderPage() {
           birthYear: a.birthYear || '',
           birthPlace: a.birthPlace || '',
           deathYear: a.deathYear || '',
+          deathPlace: a.deathPlace || '',
           relationship: a.relationship || '',
+          generation: a.generation,
           notes: a.notes || '',
         }))
 
