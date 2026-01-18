@@ -101,6 +101,7 @@ export default function AiTreeBuilderPage() {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [additionalContext, setAdditionalContext] = useState('')
   const [isDragging, setIsDragging] = useState(false)
+  const [parsingMessage, setParsingMessage] = useState('Analyzing document with AI...')
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
@@ -176,6 +177,24 @@ export default function AiTreeBuilderPage() {
 
     setUploadedFile(file)
     setIsParsingFile(true)
+    setParsingMessage('Analyzing document with AI...')
+
+    // Show progress messages during long processing
+    const messages = [
+      'Analyzing document with AI...',
+      'Extracting family information...',
+      'Processing genealogy data...',
+      'This may take a minute for large files...',
+      'Still working... large PDFs take longer...',
+      'Almost there... extracting ancestors...',
+    ]
+    let messageIndex = 0
+    const messageInterval = setInterval(() => {
+      messageIndex = (messageIndex + 1) % messages.length
+      setParsingMessage(messages[messageIndex])
+    }, 8000)
+
+    const cleanup = () => clearInterval(messageInterval)
 
     try {
       const formData = new FormData()
@@ -185,6 +204,8 @@ export default function AiTreeBuilderPage() {
         method: 'POST',
         body: formData,
       })
+
+      cleanup()
 
       if (!response.ok) {
         const error = await response.json()
@@ -242,6 +263,7 @@ export default function AiTreeBuilderPage() {
         setAdditionalContext(data.additionalContext)
       }
     } catch (error) {
+      cleanup()
       toast({
         variant: 'destructive',
         title: 'Parse Failed',
@@ -249,6 +271,7 @@ export default function AiTreeBuilderPage() {
       })
       setUploadedFile(null)
     } finally {
+      cleanup()
       setIsParsingFile(false)
     }
   }
@@ -452,7 +475,10 @@ export default function AiTreeBuilderPage() {
                           <div className="space-y-3">
                             <Loader2 className="h-10 w-10 mx-auto text-primary animate-spin" />
                             <p className="text-sm text-muted-foreground">
-                              Analyzing document with AI...
+                              {parsingMessage}
+                            </p>
+                            <p className="text-xs text-muted-foreground/60">
+                              Large documents may take up to 2 minutes
                             </p>
                           </div>
                         ) : uploadedFile ? (

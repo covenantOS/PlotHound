@@ -19,11 +19,11 @@ interface ParsedAncestor {
 // Delay helper
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
-// Retry with exponential backoff
+// Retry with exponential backoff - longer delays for rate limits
 async function retryWithBackoff<T>(
   fn: () => Promise<T>,
-  maxRetries: number = 3,
-  baseDelayMs: number = 3000
+  maxRetries: number = 4,
+  baseDelayMs: number = 15000 // Start with 15 seconds for rate limits
 ): Promise<T> {
   let lastError: Error | null = null
 
@@ -33,16 +33,18 @@ async function retryWithBackoff<T>(
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error))
       const isRateLimit = lastError.message.includes('rate_limit') ||
-        lastError.message.includes('429')
+        lastError.message.includes('429') ||
+        lastError.message.includes('overloaded')
 
-      console.log(`API call failed (attempt ${attempt + 1}):`, lastError.message)
+      console.log(`API call failed (attempt ${attempt + 1}/${maxRetries}):`, lastError.message)
 
       if (!isRateLimit || attempt === maxRetries - 1) {
         throw lastError
       }
 
+      // Longer waits: 15s, 30s, 60s, 120s
       const waitTime = baseDelayMs * Math.pow(2, attempt)
-      console.log(`Rate limited, waiting ${waitTime}ms before retry...`)
+      console.log(`Rate limited, waiting ${waitTime / 1000}s before retry ${attempt + 2}...`)
       await delay(waitTime)
     }
   }
@@ -436,9 +438,9 @@ IMPORTANT:
     console.error('Document parse error:', error)
     const errorMessage = error instanceof Error ? error.message : 'Failed to process document'
 
-    if (errorMessage.includes('rate_limit') || errorMessage.includes('429')) {
+    if (errorMessage.includes('rate_limit') || errorMessage.includes('429') || errorMessage.includes('overloaded')) {
       return NextResponse.json({
-        error: 'API rate limit reached. Please wait a moment and try again.'
+        error: 'API is busy. Please wait 1-2 minutes and try again. Large PDFs may need a longer wait.'
       }, { status: 429 })
     }
 
