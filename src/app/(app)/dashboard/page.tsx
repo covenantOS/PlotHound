@@ -4,7 +4,7 @@ import { Header } from '@/components/layout/header'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Plus, TreePine, Users, BrickWall, Clock, ArrowRight } from 'lucide-react'
+import { Plus, TreePine, Users, BrickWall, Clock, ArrowRight, Upload, Wand2, Sparkles } from 'lucide-react'
 import { formatRelativeDate } from '@/lib/utils'
 import { CreateTreeDialog } from '@/components/trees/create-tree-dialog'
 import type { Profile, Tree, ResearchLogEntry, Ancestor } from '@/types/database'
@@ -115,6 +115,57 @@ export default async function DashboardPage() {
                 {profile?.subscription_tier || 'Free'}
               </Badge>
             </CardContent>
+          </Card>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="grid gap-4 md:grid-cols-2 mb-8">
+          <Card className="border-dashed border-2 hover:border-primary transition-colors">
+            <Link href="/import" className="block">
+              <CardContent className="pt-6">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
+                    <Upload className="h-6 w-6 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold">Import from Ancestry</h3>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Upload a GEDCOM file from Ancestry, FamilySearch, or other software
+                    </p>
+                    <Button variant="link" className="px-0 mt-2">
+                      Import ancestors →
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Link>
+          </Card>
+
+          <Card className="border-dashed border-2 hover:border-primary transition-colors bg-gradient-to-br from-primary/5 to-transparent">
+            <Link href="/ai-tree-builder" className="block">
+              <CardContent className="pt-6">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
+                    <Wand2 className="h-6 w-6 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold">AI Tree Builder</h3>
+                      <Badge variant="secondary" className="text-xs">
+                        <Sparkles className="h-3 w-3 mr-1" />
+                        New
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Give us 3-5 ancestors and let AI research and build your tree
+                    </p>
+                    <Button variant="link" className="px-0 mt-2">
+                      Build with AI →
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Link>
           </Card>
         </div>
 

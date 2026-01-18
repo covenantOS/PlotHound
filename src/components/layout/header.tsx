@@ -17,7 +17,7 @@ import { LogOut, Settings, User, CreditCard } from 'lucide-react'
 import type { Profile } from '@/types/database'
 
 interface HeaderProps {
-  profile: Profile | null
+  profile?: Profile | null
   title?: string
   children?: React.ReactNode
 }

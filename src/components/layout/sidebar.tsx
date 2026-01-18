@@ -15,11 +15,15 @@ import {
   Sparkles,
   ChevronLeft,
   ChevronRight,
+  Upload,
+  Wand2,
 } from 'lucide-react'
 import { useState } from 'react'
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'Import', href: '/import', icon: Upload },
+  { name: 'AI Tree Builder', href: '/ai-tree-builder', icon: Wand2 },
   { name: 'Brick Walls', href: '/brick-walls', icon: BrickWall },
   { name: 'Settings', href: '/settings', icon: Settings },
 ]
