@@ -28,6 +28,7 @@ import { SourcesList } from '@/components/sources/sources-list'
 import { HypothesesList } from '@/components/hypotheses/hypotheses-list'
 import { ResearchLogList } from '@/components/research-log/research-log-list'
 import { ResearchGoalsList } from '@/components/research-goals/research-goals-list'
+import { RelationshipsDisplay } from '@/components/ancestors/relationships-display'
 import { UpgradePrompt } from '@/components/layout/upgrade-prompt'
 import { canAccessAdvancedAi } from '@/lib/subscription-limits'
 import type { Ancestor, Fact, SourceChecked, Hypothesis, ResearchLogEntry, ResearchGoal, ResearchPlan, Evidence, Profile } from '@/types/database'
@@ -85,6 +86,9 @@ export default async function AncestorPage({ params, searchParams }: AncestorPag
     researchLogResult,
     researchGoalsResult,
     researchPlanResult,
+    fatherResult,
+    motherResult,
+    childrenResult,
   ] = await Promise.all([
     supabase.from('facts').select('*').eq('ancestor_id', ancestorId).order('created_at', { ascending: false }),
     supabase.from('sources_checked').select('*').eq('ancestor_id', ancestorId).order('date_checked', { ascending: false }),
@@ -92,7 +96,32 @@ export default async function AncestorPage({ params, searchParams }: AncestorPag
     supabase.from('research_log').select('*').eq('ancestor_id', ancestorId).order('log_date', { ascending: false }).limit(10),
     supabase.from('research_goals').select('*').eq('ancestor_id', ancestorId).order('created_at', { ascending: false }),
     supabase.from('research_plans').select('*').eq('ancestor_id', ancestorId).eq('is_current', true).single(),
+    // Fetch father if exists
+    ancestor.father_id
+      ? supabase.from('ancestors').select('*').eq('id', ancestor.father_id).single()
+      : Promise.resolve({ data: null }),
+    // Fetch mother if exists
+    ancestor.mother_id
+      ? supabase.from('ancestors').select('*').eq('id', ancestor.mother_id).single()
+      : Promise.resolve({ data: null }),
+    // Fetch children (ancestors where this person is father or mother)
+    supabase
+      .from('ancestors')
+      .select('*')
+      .eq('tree_id', ancestor.tree_id)
+      .or(`father_id.eq.${ancestorId},mother_id.eq.${ancestorId}`)
+      .order('birth_date'),
   ])
+
+  // Fetch spouses if exists
+  let spouses: Ancestor[] = []
+  if (ancestor.spouse_ids && ancestor.spouse_ids.length > 0) {
+    const { data: spousesData } = await supabase
+      .from('ancestors')
+      .select('*')
+      .in('id', ancestor.spouse_ids)
+    spouses = spousesData as Ancestor[] || []
+  }
 
   const facts = factsResult.data as Fact[] | null
   const sourcesChecked = sourcesResult.data as SourceChecked[] | null
@@ -100,6 +129,9 @@ export default async function AncestorPage({ params, searchParams }: AncestorPag
   const researchLog = researchLogResult.data as ResearchLogEntry[] | null
   const researchGoals = researchGoalsResult.data as ResearchGoal[] | null
   const researchPlan = researchPlanResult.data as ResearchPlan | null
+  const father = fatherResult.data as Ancestor | null
+  const mother = motherResult.data as Ancestor | null
+  const children = childrenResult.data as Ancestor[] || []
 
   const displayName = [ancestor.given_names, ancestor.surname].filter(Boolean).join(' ') || 'Unknown Ancestor'
   const lifespan = [ancestor.birth_date, ancestor.death_date].filter(Boolean).join(' - ')
@@ -192,6 +224,15 @@ export default async function AncestorPage({ params, searchParams }: AncestorPag
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
+            {/* Family Connections */}
+            <RelationshipsDisplay
+              ancestor={ancestor}
+              father={father}
+              mother={mother}
+              spouses={spouses}
+              children={children}
+            />
+
             <div className="grid gap-6 lg:grid-cols-2">
               {/* Research Goals */}
               <Card>

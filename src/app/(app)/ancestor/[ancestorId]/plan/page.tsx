@@ -7,8 +7,15 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Progress } from '@/components/ui/progress'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { useToast } from '@/components/ui/use-toast'
 import {
   ChevronLeft,
@@ -18,8 +25,12 @@ import {
   Clock,
   Lightbulb,
   Loader2,
+  Bot,
+  Key,
+  CheckCircle2,
+  AlertCircle,
 } from 'lucide-react'
-import type { ResearchPlanData, ResearchPlanStep, ResearchPlan } from '@/types/database'
+import type { ResearchPlanData } from '@/types/database'
 
 const LIKELIHOOD_COLORS: Record<string, string> = {
   low: 'bg-red-500',
@@ -35,6 +46,18 @@ const LIKELIHOOD_LABELS: Record<string, string> = {
   very_high: 'Very High (76-95%)',
 }
 
+interface AgentResearchResult {
+  success: boolean
+  summary: string
+  saved: {
+    facts: string[]
+    sources: string[]
+    hypotheses: string[]
+    logEntry: string | null
+  }
+  nextSteps: string[]
+}
+
 export default function ResearchPlanPage() {
   const params = useParams()
   const ancestorId = params.ancestorId as string
@@ -44,9 +67,13 @@ export default function ResearchPlanPage() {
 
   const [isLoading, setIsLoading] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [isResearching, setIsResearching] = useState(false)
   const [plan, setPlan] = useState<ResearchPlanData | null>(null)
   const [ancestor, setAncestor] = useState<{ given_names: string | null; surname: string | null } | null>(null)
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set())
+  const [hasByok, setHasByok] = useState(false)
+  const [researchGoal, setResearchGoal] = useState('')
+  const [agentResult, setAgentResult] = useState<AgentResearchResult | null>(null)
 
   useEffect(() => {
     loadData()
@@ -77,7 +104,62 @@ export default function ResearchPlanPage() {
       setPlan(planData.plan_json)
     }
 
+    // Check if user has BYOK enabled
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('use_own_api_key, anthropic_api_key, openai_api_key, google_api_key')
+        .eq('id', user.id)
+        .single()
+
+      if (profileData) {
+        const hasKey = Boolean(
+          profileData.use_own_api_key &&
+          (profileData.anthropic_api_key || profileData.openai_api_key || profileData.google_api_key)
+        )
+        setHasByok(hasKey)
+      }
+    }
+
     setIsLoading(false)
+  }
+
+  const runAgentResearch = async () => {
+    setIsResearching(true)
+    setAgentResult(null)
+
+    try {
+      const response = await fetch('/api/ai/agent-research', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ancestorId,
+          researchGoal: researchGoal || undefined,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to run agent research')
+      }
+
+      setAgentResult(data)
+
+      toast({
+        title: 'Agent research complete',
+        description: `Added ${data.saved.facts.length} facts, ${data.saved.sources.length} sources, and ${data.saved.hypotheses.length} hypotheses.`,
+      })
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Something went wrong',
+      })
+    }
+
+    setIsResearching(false)
   }
 
   const generatePlan = async () => {
@@ -206,6 +288,125 @@ export default function ResearchPlanPage() {
               </CardHeader>
               <CardContent>
                 <p>{plan.summary}</p>
+              </CardContent>
+            </Card>
+
+            {/* AI Agent Research */}
+            <Card className="border-primary/30 bg-primary/5">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Bot className="h-5 w-5 text-primary" />
+                  AI Agent Research
+                </CardTitle>
+                <CardDescription>
+                  Let AI automatically analyze and add facts, sources, and hypotheses to this ancestor
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {!hasByok ? (
+                  <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
+                    <Key className="h-8 w-8 text-muted-foreground" />
+                    <div className="flex-1">
+                      <p className="font-medium">Requires Your Own API Key</p>
+                      <p className="text-sm text-muted-foreground">
+                        Add your Anthropic, OpenAI, or Google API key in Settings to use agent research.
+                      </p>
+                    </div>
+                    <Button variant="outline" asChild>
+                      <Link href="/settings">Add API Key</Link>
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="research-goal">Research Goal (optional)</Label>
+                      <Input
+                        id="research-goal"
+                        placeholder="e.g., Find parents, Confirm immigration date..."
+                        value={researchGoal}
+                        onChange={(e) => setResearchGoal(e.target.value)}
+                        disabled={isResearching}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Leave blank for general research analysis
+                      </p>
+                    </div>
+
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            onClick={runAgentResearch}
+                            disabled={isResearching}
+                            className="w-full"
+                          >
+                            {isResearching ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                AI is researching...
+                              </>
+                            ) : (
+                              <>
+                                <Bot className="mr-2 h-4 w-4" />
+                                Run Agent Research
+                              </>
+                            )}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>This will use your API key to run AI analysis</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+
+                    {/* Agent Results */}
+                    {agentResult && (
+                      <div className="mt-4 p-4 bg-background rounded-lg border space-y-4">
+                        <div className="flex items-center gap-2 text-green-600">
+                          <CheckCircle2 className="h-5 w-5" />
+                          <span className="font-medium">Research Complete</span>
+                        </div>
+
+                        <p className="text-sm">{agentResult.summary}</p>
+
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <div className="p-3 bg-muted rounded-md">
+                            <p className="text-2xl font-bold">{agentResult.saved.facts.length}</p>
+                            <p className="text-xs text-muted-foreground">Facts Added</p>
+                          </div>
+                          <div className="p-3 bg-muted rounded-md">
+                            <p className="text-2xl font-bold">{agentResult.saved.sources.length}</p>
+                            <p className="text-xs text-muted-foreground">Sources Documented</p>
+                          </div>
+                          <div className="p-3 bg-muted rounded-md">
+                            <p className="text-2xl font-bold">{agentResult.saved.hypotheses.length}</p>
+                            <p className="text-xs text-muted-foreground">Hypotheses Generated</p>
+                          </div>
+                        </div>
+
+                        {agentResult.nextSteps.length > 0 && (
+                          <div>
+                            <p className="text-sm font-medium mb-2">Recommended Next Steps:</p>
+                            <ul className="text-sm text-muted-foreground space-y-1">
+                              {agentResult.nextSteps.map((step, i) => (
+                                <li key={i} className="flex items-start gap-2">
+                                  <span className="text-primary">-</span>
+                                  {step}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        <Button variant="outline" asChild className="w-full">
+                          <Link href={`/ancestor/${ancestorId}`}>
+                            View Updated Ancestor Profile
+                          </Link>
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
 

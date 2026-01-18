@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Badge } from '@/components/ui/badge'
 import {
   Select,
   SelectContent,
@@ -35,20 +36,73 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { useToast } from '@/components/ui/use-toast'
+import { X, Plus, Users } from 'lucide-react'
 import type { Ancestor } from '@/types/database'
 
 interface EditAncestorDialogProps {
   ancestor: Ancestor & { tree?: { id: string; name: string } | null }
   children: React.ReactNode
+  treeAncestors?: Ancestor[]
 }
 
-export function EditAncestorDialog({ ancestor, children }: EditAncestorDialogProps) {
+export function EditAncestorDialog({ ancestor, children, treeAncestors: initialAncestors }: EditAncestorDialogProps) {
   const [open, setOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [gender, setGender] = useState<string>(ancestor.gender || '')
+  const [fatherId, setFatherId] = useState<string>(ancestor.father_id || '')
+  const [motherId, setMotherId] = useState<string>(ancestor.mother_id || '')
+  const [spouseIds, setSpouseIds] = useState<string[]>(ancestor.spouse_ids || [])
+  const [treeAncestors, setTreeAncestors] = useState<Ancestor[]>(initialAncestors || [])
+  const [loadingAncestors, setLoadingAncestors] = useState(false)
   const router = useRouter()
   const { toast } = useToast()
   const supabase = createClient()
+
+  // Load ancestors from the same tree when dialog opens
+  useEffect(() => {
+    if (open && treeAncestors.length === 0) {
+      loadTreeAncestors()
+    }
+  }, [open])
+
+  const loadTreeAncestors = async () => {
+    setLoadingAncestors(true)
+    const { data } = await supabase
+      .from('ancestors')
+      .select('id, given_names, surname, gender, birth_date')
+      .eq('tree_id', ancestor.tree_id)
+      .neq('id', ancestor.id)
+      .order('surname')
+
+    if (data) {
+      setTreeAncestors(data as Ancestor[])
+    }
+    setLoadingAncestors(false)
+  }
+
+  const getAncestorName = (id: string) => {
+    const a = treeAncestors.find(t => t.id === id)
+    if (!a) return 'Unknown'
+    return [a.given_names, a.surname].filter(Boolean).join(' ') || 'Unknown'
+  }
+
+  const addSpouse = (id: string) => {
+    if (id && !spouseIds.includes(id)) {
+      setSpouseIds([...spouseIds, id])
+    }
+  }
+
+  const removeSpouse = (id: string) => {
+    setSpouseIds(spouseIds.filter(s => s !== id))
+  }
+
+  // Filter ancestors by gender for parent selection
+  const maleAncestors = treeAncestors.filter(a => a.gender === 'male' || !a.gender)
+  const femaleAncestors = treeAncestors.filter(a => a.gender === 'female' || !a.gender)
+  // Potential spouses are anyone not already a spouse or parent
+  const potentialSpouses = treeAncestors.filter(
+    a => !spouseIds.includes(a.id) && a.id !== fatherId && a.id !== motherId
+  )
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -69,6 +123,9 @@ export function EditAncestorDialog({ ancestor, children }: EditAncestorDialogPro
         death_date: formData.get('death_date') as string || null,
         death_place: formData.get('death_place') as string || null,
         notes: formData.get('notes') as string || null,
+        father_id: fatherId || null,
+        mother_id: motherId || null,
+        spouse_ids: spouseIds,
       })
       .eq('id', ancestor.id)
 
@@ -226,6 +283,103 @@ export function EditAncestorDialog({ ancestor, children }: EditAncestorDialogPro
                 />
               </div>
             </div>
+            {/* Relationships Section */}
+            <div className="space-y-4 pt-2 border-t">
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-muted-foreground" />
+                <Label className="text-base font-medium">Relationships</Label>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="father">Father</Label>
+                  <Select
+                    value={fatherId}
+                    onValueChange={setFatherId}
+                    disabled={isLoading || loadingAncestors}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={loadingAncestors ? "Loading..." : "Select father"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">None</SelectItem>
+                      {maleAncestors.map(a => (
+                        <SelectItem key={a.id} value={a.id}>
+                          {[a.given_names, a.surname].filter(Boolean).join(' ') || 'Unknown'}
+                          {a.birth_date && ` (b. ${a.birth_date})`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="mother">Mother</Label>
+                  <Select
+                    value={motherId}
+                    onValueChange={setMotherId}
+                    disabled={isLoading || loadingAncestors}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={loadingAncestors ? "Loading..." : "Select mother"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">None</SelectItem>
+                      {femaleAncestors.map(a => (
+                        <SelectItem key={a.id} value={a.id}>
+                          {[a.given_names, a.surname].filter(Boolean).join(' ') || 'Unknown'}
+                          {a.birth_date && ` (b. ${a.birth_date})`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Spouses</Label>
+                {spouseIds.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {spouseIds.map(id => (
+                      <Badge key={id} variant="secondary" className="flex items-center gap-1">
+                        {getAncestorName(id)}
+                        <button
+                          type="button"
+                          onClick={() => removeSpouse(id)}
+                          className="ml-1 hover:text-destructive"
+                          disabled={isLoading}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <Select
+                    value=""
+                    onValueChange={addSpouse}
+                    disabled={isLoading || loadingAncestors || potentialSpouses.length === 0}
+                  >
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder={
+                        loadingAncestors ? "Loading..." :
+                        potentialSpouses.length === 0 ? "No available spouses" :
+                        "Add spouse..."
+                      } />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {potentialSpouses.map(a => (
+                        <SelectItem key={a.id} value={a.id}>
+                          {[a.given_names, a.surname].filter(Boolean).join(' ') || 'Unknown'}
+                          {a.birth_date && ` (b. ${a.birth_date})`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="notes">Notes</Label>
               <Textarea

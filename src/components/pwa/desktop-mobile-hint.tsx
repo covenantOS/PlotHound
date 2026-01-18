@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react'
 import { usePWA } from './pwa-provider'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Smartphone, X, QrCode, ExternalLink } from 'lucide-react'
+import { Smartphone, X, QrCode } from 'lucide-react'
+import { QRCodeSVG } from 'qrcode.react'
 
 export function DesktopMobileHint() {
   const { isStandalone } = usePWA()
@@ -74,8 +75,14 @@ export function DesktopMobileHint() {
 
           {showQR ? (
             <div className="mt-3 p-3 bg-white rounded-lg flex flex-col items-center">
-              {/* Simple QR code representation - in production use a QR library */}
-              <div className="w-32 h-32 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMDAgMjAwIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0id2hpdGUiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1zaXplPSIxMiIgZmlsbD0iIzY2NiI+U2NhbiB0byBpbnN0YWxsPC90ZXh0Pjwvc3ZnPg==')] bg-cover rounded" />
+              <QRCodeSVG
+                value={appUrl}
+                size={128}
+                bgColor="#ffffff"
+                fgColor="#000000"
+                level="M"
+                includeMargin={true}
+              />
               <p className="text-[10px] text-gray-500 mt-2 text-center">
                 Scan with your phone camera
               </p>

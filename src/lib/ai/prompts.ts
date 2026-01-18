@@ -1,62 +1,89 @@
 import type { AncestorWithContext, HypothesisWithEvidence, Ancestor } from '@/types/database'
 
 export function buildResearchPlanPrompt(ancestor: AncestorWithContext): string {
-  return `You are an expert genealogist helping a researcher find information about an ancestor. Based on the information provided, generate a prioritized research plan.
+  // Calculate timeframe for the ancestor
+  const birthYear = ancestor.birth_date ? parseInt(ancestor.birth_date.match(/\d{4}/)?.[0] || '0') : 0
+  const deathYear = ancestor.death_date ? parseInt(ancestor.death_date.match(/\d{4}/)?.[0] || '0') : 0
+  const lifespan = birthYear && deathYear ? `${birthYear}-${deathYear}` : birthYear ? `born ${birthYear}` : ''
 
-## Ancestor Information
+  // Group facts by type for clearer analysis
+  const factsByType = ancestor.facts.reduce((acc, f) => {
+    acc[f.fact_type] = acc[f.fact_type] || []
+    acc[f.fact_type].push(f)
+    return acc
+  }, {} as Record<string, typeof ancestor.facts>)
+
+  // Identify what's already been found vs not found in sources
+  const sourcesWithRecords = ancestor.sources_checked.filter(s => s.outcome === 'found_record')
+  const sourcesWithNothing = ancestor.sources_checked.filter(s => s.outcome === 'nothing_found')
+  const sourcesToRevisit = ancestor.sources_checked.filter(s => s.outcome === 'need_to_revisit')
+
+  return `You are an expert genealogist creating a HIGHLY CONTEXTUAL research plan. Your recommendations must be directly informed by what is already known and what has already been tried.
+
+## Ancestor Profile
 
 **Name:** ${ancestor.given_names || ''} ${ancestor.surname || ''}${ancestor.maiden_name ? ` (nee ${ancestor.maiden_name})` : ''}
 **Gender:** ${ancestor.gender || 'Unknown'}
+**Lifespan:** ${lifespan || 'Unknown dates'}
 **Birth:** ${ancestor.birth_date || 'Unknown'}${ancestor.birth_place ? ` in ${ancestor.birth_place}` : ''}
 **Death:** ${ancestor.death_date || 'Unknown'}${ancestor.death_place ? ` in ${ancestor.death_place}` : ''}
+${ancestor.is_brick_wall ? `\n**⚠️ BRICK WALL:** ${ancestor.brick_wall_notes || 'No notes on why stuck'}` : ''}
 
-## Known Facts
-${ancestor.facts.length > 0 ? ancestor.facts.map(f => `- ${f.fact_type}: ${f.fact_value}${f.fact_date ? ` (${f.fact_date})` : ''}${f.fact_place ? ` at ${f.fact_place}` : ''} [${f.confidence}]`).join('\n') : 'None recorded'}
+## What We Already Know (Facts by Category)
+${Object.entries(factsByType).map(([type, facts]) =>
+  `### ${type.charAt(0).toUpperCase() + type.slice(1)}\n${facts.map(f =>
+    `- ${f.fact_value}${f.fact_date ? ` (${f.fact_date})` : ''}${f.fact_place ? ` at ${f.fact_place}` : ''} [Confidence: ${f.confidence}]${f.notes ? ` — Note: ${f.notes}` : ''}`
+  ).join('\n')}`
+).join('\n\n') || 'No facts recorded yet - this is a fresh research subject'}
 
-## Current Research Goals
-${ancestor.research_goals.filter(g => g.status === 'active').map(g => `- ${g.goal_text}`).join('\n') || 'No specific goals set'}
+## Active Research Goals
+${ancestor.research_goals.filter(g => g.status === 'active').map(g => `- ${g.goal_text}${g.notes ? ` (${g.notes})` : ''}`).join('\n') || 'No specific goals set - suggest appropriate research goals'}
 
-## Sources Already Checked
-${ancestor.sources_checked.length > 0 ? ancestor.sources_checked.map(s => `- ${s.source_name} (${s.repository || 'unknown repository'}): ${s.outcome}${s.findings ? ` - "${s.findings}"` : ''}`).join('\n') : 'None recorded'}
+## Working Hypotheses
+${ancestor.hypotheses.filter(h => h.status === 'testing').map(h =>
+  `- "${h.hypothesis_text}" [${h.status}]${h.confidence_score ? ` — Confidence: ${h.confidence_score}%` : ''}`
+).join('\n') || 'No hypotheses being tested'}
 
-## Your Task
+## Research History - Sources Already Checked
+${sourcesWithRecords.length > 0 ? `### ✓ Found Records In:\n${sourcesWithRecords.map(s => `- ${s.source_name} (${s.repository || '?'}): "${s.findings}"`).join('\n')}` : ''}
+${sourcesWithNothing.length > 0 ? `### ✗ Checked But Found Nothing:\n${sourcesWithNothing.map(s => `- ${s.source_name} (${s.repository || '?'})${s.findings ? ` — Note: ${s.findings}` : ''}`).join('\n')}` : ''}
+${sourcesToRevisit.length > 0 ? `### ⟲ Need to Revisit:\n${sourcesToRevisit.map(s => `- ${s.source_name}: ${s.findings || 'No notes'}`).join('\n')}` : ''}
+${ancestor.sources_checked.length === 0 ? 'No sources have been checked yet' : ''}
 
-Generate a research plan with 5-8 specific next steps. For each step, provide:
+## Recent Research Activity Log
+${ancestor.research_log.length > 0 ? ancestor.research_log.slice(0, 8).map(l => `- [${new Date(l.log_date).toLocaleDateString()}] ${l.entry_text}`).join('\n') : 'No research log entries'}
 
-1. **Source to check**: Be specific (e.g., "1850 Federal Census, Hamilton County, Ohio" not just "census records")
-2. **Repository**: Where to find it (Ancestry, FamilySearch, specific archive, etc.)
-3. **Why this might help**: Connect it to the research goals or gaps in knowledge
-4. **Likelihood score**: Estimate probability of finding useful information (Low: 10-25%, Medium: 26-50%, High: 51-75%, Very High: 76-95%)
-5. **Estimated time**: How long this search typically takes
-6. **Direct link**: If available, provide a URL to start the search
+## Your Contextual Research Plan
 
-Prioritize by likelihood of success, with highest likelihood first.
+CRITICAL: Your recommendations MUST:
+1. **Build on what's known** - Use the birth year (${birthYear || '?'}), locations (${[ancestor.birth_place, ancestor.death_place].filter(Boolean).join(', ') || 'unknown'}), and existing facts to suggest SPECIFIC records
+2. **Avoid what's been tried** - Do NOT suggest sources listed in "Checked But Found Nothing" unless you explain why to retry with a different strategy
+3. **Address the goals** - Directly address the active research goals listed above
+4. **Support hypotheses** - Suggest records that could prove or disprove the working hypotheses
+5. **Be location-specific** - Reference the actual places: ${[ancestor.birth_place, ancestor.death_place].filter(Boolean).join(', ') || 'locations TBD'}
 
-Consider:
-- Time period and location-specific records that would have existed
-- Records the researcher has NOT yet checked
-- Alternative approaches if direct records don't exist
-- DNA research angles if applicable
+Generate a research plan with 5-8 specific next steps:
 
 Respond in this JSON format:
 {
-  "summary": "Brief overview of the research situation and strategy",
+  "summary": "Contextual overview acknowledging what we know, what we've tried, and the strategy moving forward",
   "steps": [
     {
       "priority": 1,
-      "source_name": "Specific source name",
+      "source_name": "Specific source (e.g., '${birthYear ? birthYear + ' Federal Census, ' : ''}${ancestor.birth_place || '[County], [State]'}')",
       "source_type": "census|vital|church|military|land|probate|newspaper|immigration|dna|other",
-      "repository": "Where to find it",
-      "rationale": "Why this might help",
+      "repository": "Where to find it (Ancestry, FamilySearch, specific archive)",
+      "rationale": "How this connects to the known facts and goals - be specific!",
       "likelihood": "low|medium|high|very_high",
       "likelihood_percent": 45,
       "estimated_minutes": 30,
       "url": "https://..." or null,
-      "tips": "Any specific search tips for this source"
+      "tips": "Search tips based on name variations, location changes, etc."
     }
   ],
   "alternative_approaches": [
-    "If standard records fail, consider..."
+    "Cluster research through siblings...",
+    "DNA approach if applicable..."
   ]
 }`
 }

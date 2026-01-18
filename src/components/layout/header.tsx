@@ -33,13 +33,15 @@ export function Header({ profile, title, children }: HeaderProps) {
   }
 
   return (
-    <header className="flex h-16 items-center justify-between border-b bg-card px-6">
-      <div className="flex items-center gap-4">
-        {title && <h1 className="font-serif text-xl font-semibold">{title}</h1>}
-        {children}
+    <header className="flex h-14 md:h-16 items-center justify-between border-b bg-card px-4 md:px-6">
+      <div className="flex items-center gap-2 md:gap-4 min-w-0">
+        {title && <h1 className="font-serif text-base md:text-xl font-semibold truncate">{title}</h1>}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {children}
+        </div>
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 md:gap-4 flex-shrink-0">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="relative h-9 w-9 rounded-full">
