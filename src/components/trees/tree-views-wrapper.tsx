@@ -43,12 +43,27 @@ export function TreeViewsWrapper({ ancestors, treeId }: TreeViewsWrapperProps) {
         throw new Error(data.error || 'Failed to detect relationships')
       }
 
+      // Build a more informative description
+      let description = `Analyzed ${data.analyzed} people.`
+      if (data.updated > 0 && data.updatedRelationships?.length > 0) {
+        // Show up to 3 specific updates
+        const updates = data.updatedRelationships.slice(0, 3).join(', ')
+        const moreCount = data.updatedRelationships.length - 3
+        description = updates + (moreCount > 0 ? ` and ${moreCount} more` : '')
+      } else if (data.relationshipsDetected === 0) {
+        description = 'No new relationships could be detected from the available data.'
+      } else {
+        description = `Found ${data.relationshipsDetected} potential relationships, ${data.updated} were new.`
+      }
+
       toast({
-        title: 'Relationships detected',
-        description: `Analyzed ${data.analyzed} people, updated ${data.updated} relationships.`,
+        title: data.updated > 0 ? 'Relationships updated!' : 'Analysis complete',
+        description,
       })
 
-      router.refresh()
+      if (data.updated > 0) {
+        router.refresh()
+      }
     } catch (error) {
       toast({
         variant: 'destructive',
