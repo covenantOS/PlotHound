@@ -3,12 +3,12 @@ import { Header } from '@/components/layout/header'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
 import { Check, Sparkles } from 'lucide-react'
 import { TIER_LIMITS } from '@/lib/subscription-limits'
 import { formatBytes } from '@/lib/utils'
 import { BillingPortalButton } from '@/components/settings/billing-portal-button'
 import { UpgradeButton } from '@/components/settings/upgrade-button'
+import { APIKeysForm } from '@/components/settings/api-keys-form'
 import type { SubscriptionTier, Profile } from '@/types/database'
 
 const PLANS: { tier: SubscriptionTier; name: string; price: number; features: string[] }[] = [
@@ -189,6 +189,17 @@ export default async function SettingsPage() {
               })}
             </div>
           </div>
+
+          {/* AI API Keys */}
+          <APIKeysForm
+            initialData={{
+              ai_provider: ((profile as Record<string, unknown>)?.ai_provider as 'anthropic' | 'openai' | 'google') || 'anthropic',
+              anthropic_api_key: (profile as Record<string, unknown>)?.anthropic_api_key as string | null,
+              openai_api_key: (profile as Record<string, unknown>)?.openai_api_key as string | null,
+              google_api_key: (profile as Record<string, unknown>)?.google_api_key as string | null,
+              use_own_api_key: ((profile as Record<string, unknown>)?.use_own_api_key as boolean) || false,
+            }}
+          />
 
           {/* AI Features Preview */}
           <Card className="bg-gradient-to-r from-primary/5 to-accent/5">

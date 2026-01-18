@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import Anthropic from '@anthropic-ai/sdk'
-
-const anthropic = new Anthropic()
+import { getAIConfig, createCompletion, type AIConfig } from '@/lib/ai/provider'
 
 interface ParsedAncestor {
   givenNames: string
@@ -55,7 +53,8 @@ async function retryWithBackoff<T>(
 // Process text in chunks
 async function processTextInChunks(
   textContent: string,
-  systemPrompt: string
+  systemPrompt: string,
+  aiConfig: AIConfig
 ): Promise<{ ancestors: ParsedAncestor[], treeName: string, additionalContext: string }> {
   // Split text into chunks of roughly 4000 characters each
   const CHUNK_SIZE = 4000
@@ -88,10 +87,9 @@ async function processTextInChunks(
   // If only one chunk, process normally
   if (chunks.length <= 1) {
     const response = await retryWithBackoff(() =>
-      anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 8000,
+      createCompletion(aiConfig, {
         system: systemPrompt,
+        maxTokens: 8000,
         messages: [
           {
             role: 'user',
@@ -101,7 +99,7 @@ async function processTextInChunks(
       })
     )
 
-    const responseText = response.content[0].type === 'text' ? response.content[0].text : ''
+    const responseText = response.text
     console.log('AI response length:', responseText.length)
 
     const jsonMatch = responseText.match(/\{[\s\S]*\}/)
@@ -140,10 +138,9 @@ async function processTextInChunks(
 
     try {
       const response = await retryWithBackoff(() =>
-        anthropic.messages.create({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4000,
+        createCompletion(aiConfig, {
           system: systemPrompt,
+          maxTokens: 4000,
           messages: [
             {
               role: 'user',
@@ -153,7 +150,7 @@ async function processTextInChunks(
         })
       )
 
-      const responseText = response.content[0].type === 'text' ? response.content[0].text : ''
+      const responseText = response.text
       const jsonMatch = responseText.match(/\{[\s\S]*\}/)
 
       if (jsonMatch) {
@@ -217,14 +214,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Check subscription
+    // Check subscription and get AI settings
     const { data: profile } = await supabase
       .from('profiles')
-      .select('subscription_tier')
+      .select('subscription_tier, ai_provider, anthropic_api_key, openai_api_key, google_api_key, use_own_api_key')
       .eq('id', user.id)
       .single()
 
     const tier = (profile as { subscription_tier: string } | null)?.subscription_tier || 'free'
+
+    // Get AI configuration based on user's settings
+    const aiConfig = getAIConfig(profile as {
+      ai_provider?: string
+      anthropic_api_key?: string
+      openai_api_key?: string
+      google_api_key?: string
+      use_own_api_key?: boolean
+    } | null)
+
+    console.log(`Using AI provider: ${aiConfig.provider}, platform key: ${aiConfig.usePlatformKey}`)
     if (!['researcher', 'investigator', 'professional'].includes(tier)) {
       return NextResponse.json({ error: 'Upgrade required' }, { status: 403 })
     }
@@ -349,52 +357,24 @@ IMPORTANT:
     if (imageBase64 && mediaType) {
       console.log(`Sending ${mediaType} to AI (base64 length: ${imageBase64.length})`)
 
-      // For PDFs/images, use a single call with retry
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let content: any
-
-      if (mediaType === 'application/pdf') {
-        content = [
-          {
-            type: 'document',
-            source: {
-              type: 'base64',
-              media_type: mediaType,
-              data: imageBase64,
-            },
-          },
-          {
-            type: 'text',
-            text: 'Extract ALL genealogical information from this entire document. Include EVERY person mentioned with detailed notes. Return JSON as specified.',
-          },
-        ]
-      } else {
-        content = [
-          {
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: mediaType,
-              data: imageBase64,
-            },
-          },
-          {
-            type: 'text',
-            text: 'Extract ALL genealogical information from this image. Include EVERY person with detailed notes. Return JSON as specified.',
-          },
-        ]
-      }
+      const textPrompt = mediaType === 'application/pdf'
+        ? 'Extract ALL genealogical information from this entire document. Include EVERY person mentioned with detailed notes. Return JSON as specified.'
+        : 'Extract ALL genealogical information from this image. Include EVERY person with detailed notes. Return JSON as specified.'
 
       const response = await retryWithBackoff(() =>
-        anthropic.messages.create({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 8000,
+        createCompletion(aiConfig, {
           system: systemPrompt,
-          messages: [{ role: 'user', content }],
+          maxTokens: 8000,
+          messages: [{ role: 'user', content: textPrompt }],
+          imageContent: {
+            type: mediaType === 'application/pdf' ? 'document' : 'image',
+            base64: imageBase64,
+            mediaType: mediaType,
+          },
         })
       )
 
-      const responseText = response.content[0].type === 'text' ? response.content[0].text : ''
+      const responseText = response.text
       console.log('AI response received, length:', responseText.length)
 
       const jsonMatch = responseText.match(/\{[\s\S]*\}/)
@@ -420,7 +400,7 @@ IMPORTANT:
     } else if (textContent && textContent.length > 0) {
       console.log(`Processing text content (${textContent.length} chars)`)
       // For text files, use chunked processing
-      result = await processTextInChunks(textContent, systemPrompt)
+      result = await processTextInChunks(textContent, systemPrompt, aiConfig)
     } else {
       return NextResponse.json({
         error: 'No content could be extracted from the file.'

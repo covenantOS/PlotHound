@@ -1,12 +1,8 @@
 import { NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
 import { canAccessAiFeatures } from '@/lib/subscription-limits'
 import type { SubscriptionTier } from '@/types/database'
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-})
+import { getAIConfig, createCompletion, type AIConfig } from '@/lib/ai/provider'
 
 interface SeedAncestor {
   givenNames: string
@@ -86,14 +82,25 @@ export async function POST(request: Request) {
           return
         }
 
-        // Check subscription tier
+        // Check subscription tier and get AI settings
         const { data: profileData } = await supabase
           .from('profiles')
-          .select('subscription_tier')
+          .select('subscription_tier, ai_provider, anthropic_api_key, openai_api_key, google_api_key, use_own_api_key')
           .eq('id', user.id)
           .single()
 
-        const profile = profileData as { subscription_tier: SubscriptionTier } | null
+        const profile = profileData as {
+          subscription_tier: SubscriptionTier
+          ai_provider?: string
+          anthropic_api_key?: string
+          openai_api_key?: string
+          google_api_key?: string
+          use_own_api_key?: boolean
+        } | null
+
+        // Get AI configuration based on user's settings
+        const aiConfig = getAIConfig(profile)
+        console.log(`Using AI provider: ${aiConfig.provider}, platform key: ${aiConfig.usePlatformKey}`)
 
         if (!canAccessAiFeatures(profile?.subscription_tier || 'free')) {
           send({ type: 'error', error: 'Upgrade required to use AI Tree Builder' })
@@ -161,14 +168,13 @@ export async function POST(request: Request) {
               const enhancementPrompt = buildEnhancementPrompt(seedAncestors.slice(0, 10), additionalContext)
 
               const enhancement = await retryWithBackoff(() =>
-                anthropic.messages.create({
-                  model: 'claude-sonnet-4-20250514',
-                  max_tokens: 2000,
+                createCompletion(aiConfig, {
+                  maxTokens: 2000,
                   messages: [{ role: 'user', content: enhancementPrompt }],
                 })
               )
 
-              const enhancementText = enhancement.content[0].type === 'text' ? enhancement.content[0].text : ''
+              const enhancementText = enhancement.text
 
               try {
                 const enhancementMatch = enhancementText.match(/\{[\s\S]*\}/)
@@ -200,16 +206,15 @@ export async function POST(request: Request) {
             const prompt = buildResearchPrompt(seedAncestors)
 
             const message = await retryWithBackoff(() =>
-              anthropic.messages.create({
-                model: 'claude-sonnet-4-20250514',
-                max_tokens: 4000, // Reduced to avoid rate limits
+              createCompletion(aiConfig, {
+                maxTokens: 4000, // Reduced to avoid rate limits
                 messages: [{ role: 'user', content: prompt }],
               })
             )
 
             send({ type: 'progress', progress: 50, message: 'Processing research findings...' })
 
-            const responseText = message.content[0].type === 'text' ? message.content[0].text : ''
+            const responseText = message.text
 
             // Parse the JSON response
             const jsonMatch = responseText.match(/\{[\s\S]*\}/)
