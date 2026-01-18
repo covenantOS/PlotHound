@@ -406,9 +406,10 @@ export function TreeView({ ancestors, treeId }: TreeViewProps) {
         </div>
       </div>
 
-      {/* Zoom indicator */}
-      <div className="absolute bottom-3 right-3 z-10 px-2 py-1 bg-background/80 rounded text-xs">
-        {Math.round(transform.scale * 100)}%
+      {/* Stats and zoom indicator */}
+      <div className="absolute bottom-3 right-3 z-10 px-2 py-1 bg-background/80 rounded text-xs space-y-1">
+        <div>{nodes.length} people, {connections.length} connections</div>
+        <div>{Math.round(transform.scale * 100)}%</div>
       </div>
 
       {/* Tree canvas */}
