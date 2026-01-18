@@ -35,12 +35,14 @@ async function retryWithBackoff<T>(
       const isRateLimit = lastError.message.includes('rate_limit') ||
         lastError.message.includes('429')
 
+      console.log(`API call failed (attempt ${attempt + 1}):`, lastError.message)
+
       if (!isRateLimit || attempt === maxRetries - 1) {
         throw lastError
       }
 
       const waitTime = baseDelayMs * Math.pow(2, attempt)
-      console.log(`Rate limited, waiting ${waitTime}ms before retry ${attempt + 1}...`)
+      console.log(`Rate limited, waiting ${waitTime}ms before retry...`)
       await delay(waitTime)
     }
   }
@@ -73,6 +75,14 @@ async function processTextInChunks(
     chunks.push(currentChunk.trim())
   }
 
+  // If no meaningful content, return empty
+  if (chunks.length === 0 || (chunks.length === 1 && chunks[0].length < 50)) {
+    console.log('No meaningful text content to process')
+    return { ancestors: [], treeName: 'Imported Family Tree', additionalContext: '' }
+  }
+
+  console.log(`Processing ${chunks.length} text chunk(s), total length: ${textContent.length}`)
+
   // If only one chunk, process normally
   if (chunks.length <= 1) {
     const response = await retryWithBackoff(() =>
@@ -90,13 +100,19 @@ async function processTextInChunks(
     )
 
     const responseText = response.content[0].type === 'text' ? response.content[0].text : ''
+    console.log('AI response length:', responseText.length)
+
     const jsonMatch = responseText.match(/\{[\s\S]*\}/)
     if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0])
-      return {
-        ancestors: parsed.ancestors || [],
-        treeName: parsed.treeName || 'Imported Family Tree',
-        additionalContext: parsed.additionalContext || '',
+      try {
+        const parsed = JSON.parse(jsonMatch[0])
+        return {
+          ancestors: parsed.ancestors || [],
+          treeName: parsed.treeName || 'Imported Family Tree',
+          additionalContext: parsed.additionalContext || '',
+        }
+      } catch (e) {
+        console.error('JSON parse error:', e)
       }
     }
     return { ancestors: [], treeName: 'Imported Family Tree', additionalContext: '' }
@@ -107,10 +123,9 @@ async function processTextInChunks(
   let treeName = 'Imported Family Tree'
   const contextParts: string[] = []
 
-  console.log(`Processing ${chunks.length} chunks...`)
-
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i]
+    console.log(`Processing chunk ${i + 1}/${chunks.length} (${chunk.length} chars)`)
 
     // Add delay between API calls to avoid rate limits
     if (i > 0) {
@@ -146,8 +161,8 @@ async function processTextInChunks(
           // Deduplicate by name
           for (const ancestor of parsed.ancestors) {
             const existingIdx = allAncestors.findIndex(a =>
-              a.givenNames.toLowerCase() === ancestor.givenNames?.toLowerCase() &&
-              a.surname.toLowerCase() === ancestor.surname?.toLowerCase()
+              a.givenNames?.toLowerCase() === ancestor.givenNames?.toLowerCase() &&
+              a.surname?.toLowerCase() === ancestor.surname?.toLowerCase()
             )
 
             if (existingIdx === -1) {
@@ -162,11 +177,12 @@ async function processTextInChunks(
                 generation: ancestor.generation,
                 notes: ancestor.notes || '',
               })
-            } else if (ancestor.notes && ancestor.notes.length > allAncestors[existingIdx].notes.length) {
+            } else if (ancestor.notes && ancestor.notes.length > (allAncestors[existingIdx].notes?.length || 0)) {
               // Merge notes if new one has more info
               allAncestors[existingIdx].notes = ancestor.notes
             }
           }
+          console.log(`Chunk ${i + 1}: found ${parsed.ancestors.length} ancestors, total now: ${allAncestors.length}`)
         }
 
         if (i === 0 && parsed.treeName) {
@@ -218,6 +234,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
     }
 
+    console.log(`Processing file: ${file.name}, type: ${file.type}, size: ${file.size}`)
+
     // Check file size (max 10MB)
     if (file.size > 10 * 1024 * 1024) {
       return NextResponse.json({ error: 'File too large (max 10MB)' }, { status: 400 })
@@ -259,10 +277,12 @@ IMPORTANT:
     let mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' | 'application/pdf' | null = null
 
     if (fileType === 'application/pdf' || fileName.endsWith('.pdf')) {
+      console.log('Processing as PDF')
       const buffer = await file.arrayBuffer()
       imageBase64 = Buffer.from(buffer).toString('base64')
       mediaType = 'application/pdf'
     } else if (fileType.startsWith('image/')) {
+      console.log('Processing as image')
       const buffer = await file.arrayBuffer()
       imageBase64 = Buffer.from(buffer).toString('base64')
       if (fileType === 'image/jpeg' || fileType === 'image/jpg') {
@@ -280,6 +300,7 @@ IMPORTANT:
       fileName.endsWith('.txt') ||
       fileName.endsWith('.csv')
     ) {
+      console.log('Processing as text file')
       textContent = await file.text()
     } else if (
       fileType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
@@ -287,15 +308,36 @@ IMPORTANT:
       fileName.endsWith('.docx') ||
       fileName.endsWith('.doc')
     ) {
-      const buffer = await file.arrayBuffer()
-      imageBase64 = Buffer.from(buffer).toString('base64')
-      textContent = `[Word Document: ${file.name}]`
+      // For Word docs, try to read as text first (works for some formats)
+      // If that fails or is binary, we'll try to extract what we can
+      console.log('Processing as Word document')
+      try {
+        const rawText = await file.text()
+        // Check if it looks like actual text content (not binary)
+        const printableRatio = rawText.split('').filter(c => c.charCodeAt(0) >= 32 && c.charCodeAt(0) < 127).length / rawText.length
+        if (printableRatio > 0.7) {
+          // Mostly printable, use as text
+          textContent = rawText
+          console.log('Word doc readable as text')
+        } else {
+          // Binary format - note this to the user
+          return NextResponse.json({
+            error: 'Word documents in .docx format cannot be directly read. Please save as .txt or copy/paste the content into a text file.'
+          }, { status: 400 })
+        }
+      } catch {
+        return NextResponse.json({
+          error: 'Could not read Word document. Please save as .txt or PDF and try again.'
+        }, { status: 400 })
+      }
     } else {
+      // Try to read as text
+      console.log('Processing as generic text')
       try {
         textContent = await file.text()
       } catch {
         return NextResponse.json({
-          error: 'Unsupported file type. Please upload a PDF, image, Word doc, or text file.'
+          error: 'Unsupported file type. Please upload a PDF, image, or text file.'
         }, { status: 400 })
       }
     }
@@ -303,6 +345,8 @@ IMPORTANT:
     let result: { ancestors: ParsedAncestor[], treeName: string, additionalContext: string }
 
     if (imageBase64 && mediaType) {
+      console.log(`Sending ${mediaType} to AI (base64 length: ${imageBase64.length})`)
+
       // For PDFs/images, use a single call with retry
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let content: any
@@ -349,22 +393,39 @@ IMPORTANT:
       )
 
       const responseText = response.content[0].type === 'text' ? response.content[0].text : ''
+      console.log('AI response received, length:', responseText.length)
+
       const jsonMatch = responseText.match(/\{[\s\S]*\}/)
 
       if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0])
-        result = {
-          ancestors: parsed.ancestors || [],
-          treeName: parsed.treeName || 'Imported Family Tree',
-          additionalContext: parsed.additionalContext || '',
+        try {
+          const parsed = JSON.parse(jsonMatch[0])
+          result = {
+            ancestors: parsed.ancestors || [],
+            treeName: parsed.treeName || 'Imported Family Tree',
+            additionalContext: parsed.additionalContext || '',
+          }
+          console.log(`Parsed ${result.ancestors.length} ancestors from document`)
+        } catch (parseError) {
+          console.error('JSON parse error:', parseError)
+          console.log('Raw response:', responseText.substring(0, 500))
+          throw new Error('Failed to parse AI response as JSON')
         }
       } else {
-        throw new Error('Failed to parse AI response')
+        console.log('No JSON found in response:', responseText.substring(0, 500))
+        throw new Error('AI response did not contain valid JSON')
       }
-    } else {
+    } else if (textContent && textContent.length > 0) {
+      console.log(`Processing text content (${textContent.length} chars)`)
       // For text files, use chunked processing
       result = await processTextInChunks(textContent, systemPrompt)
+    } else {
+      return NextResponse.json({
+        error: 'No content could be extracted from the file.'
+      }, { status: 400 })
     }
+
+    console.log(`Returning ${result.ancestors.length} ancestors`)
 
     return NextResponse.json({
       treeName: result.treeName,
@@ -381,8 +442,9 @@ IMPORTANT:
       }, { status: 429 })
     }
 
+    // Return more specific error message
     return NextResponse.json(
-      { error: 'Failed to process document' },
+      { error: errorMessage },
       { status: 500 }
     )
   }
