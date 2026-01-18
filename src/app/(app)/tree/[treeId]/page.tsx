@@ -3,13 +3,13 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { Header } from '@/components/layout/header'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { Plus, Search, BrickWall, ArrowRight, Filter } from 'lucide-react'
+import { Plus, Search, BrickWall } from 'lucide-react'
 import { CreateAncestorDialog } from '@/components/ancestors/create-ancestor-dialog'
-import { AncestorCard } from '@/components/ancestors/ancestor-card'
 import { EditTreeDialog } from '@/components/trees/edit-tree-dialog'
+import { TreeViewsWrapper } from '@/components/trees/tree-views-wrapper'
 import type { Profile, Tree, Ancestor } from '@/types/database'
 
 interface AncestorWithCounts extends Ancestor {
@@ -132,7 +132,7 @@ export default async function TreePage({ params, searchParams }: TreePageProps) 
           </div>
         </div>
 
-        {/* Ancestors Grid */}
+        {/* Tree Views */}
         {ancestors?.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
@@ -158,11 +158,7 @@ export default async function TreePage({ params, searchParams }: TreePageProps) 
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {ancestors?.map((ancestor) => (
-              <AncestorCard key={ancestor.id} ancestor={ancestor} />
-            ))}
-          </div>
+          <TreeViewsWrapper ancestors={ancestors || []} treeId={treeId} />
         )}
       </div>
     </>

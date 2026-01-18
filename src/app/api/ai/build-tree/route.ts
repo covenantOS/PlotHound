@@ -139,8 +139,8 @@ export async function POST(request: Request) {
         let sourcesChecked: string[] = []
 
         if (hasDetailedData || hasMultipleAncestors) {
-          // Already have extracted data - skip AI research and add directly
-          send({ type: 'progress', progress: 20, message: 'Processing extracted ancestors...' })
+          // Already have extracted data - process and enhance with AI insights
+          send({ type: 'progress', progress: 15, message: 'Processing extracted ancestors...' })
 
           ancestorsToAdd = seedAncestors.map(a => ({
             givenNames: a.givenNames,
@@ -159,44 +159,113 @@ export async function POST(request: Request) {
 
           sourcesChecked = ['Uploaded Document', 'User Provided Data']
 
-          // If we have additional context, add a brief AI enhancement pass
-          if (additionalContext && additionalContext.length > 100) {
-            send({ type: 'progress', progress: 30, message: 'Enhancing with additional context...' })
+          // AI enhancement pass - add research insights, suggest sources, find gaps
+          send({ type: 'progress', progress: 25, message: 'AI analyzing family data for insights...' })
+
+          try {
+            const analysisPrompt = buildAnalysisPrompt(seedAncestors, additionalContext)
+
+            const analysis = await retryWithBackoff(() =>
+              createCompletion(aiConfig, {
+                maxTokens: 4000,
+                messages: [{ role: 'user', content: analysisPrompt }],
+              })
+            )
+
+            const analysisText = analysis.text
+            console.log('AI analysis response length:', analysisText.length)
 
             try {
-              // Small, focused AI call to add context to notes
-              const enhancementPrompt = buildEnhancementPrompt(seedAncestors.slice(0, 10), additionalContext)
+              const analysisMatch = analysisText.match(/\{[\s\S]*\}/)
+              if (analysisMatch) {
+                const result = JSON.parse(analysisMatch[0])
 
-              const enhancement = await retryWithBackoff(() =>
-                createCompletion(aiConfig, {
-                  maxTokens: 2000,
-                  messages: [{ role: 'user', content: enhancementPrompt }],
-                })
-              )
+                // Add research insights to each ancestor's notes
+                if (result.ancestorInsights) {
+                  for (const insight of result.ancestorInsights) {
+                    const idx = ancestorsToAdd.findIndex(a =>
+                      `${a.givenNames} ${a.surname}`.toLowerCase().includes(insight.name?.toLowerCase()) ||
+                      insight.name?.toLowerCase().includes(`${a.givenNames} ${a.surname}`.toLowerCase())
+                    )
+                    if (idx !== -1) {
+                      const insightLines: string[] = []
 
-              const enhancementText = enhancement.text
+                      if (insight.researchTips) {
+                        insightLines.push('\n\n📋 RESEARCH TIPS:')
+                        insightLines.push(insight.researchTips)
+                      }
 
-              try {
-                const enhancementMatch = enhancementText.match(/\{[\s\S]*\}/)
-                if (enhancementMatch) {
-                  const enhancements = JSON.parse(enhancementMatch[0])
-                  if (enhancements.enhancements) {
-                    for (const enh of enhancements.enhancements) {
-                      const idx = ancestorsToAdd.findIndex(a =>
-                        `${a.givenNames} ${a.surname}`.toLowerCase() === enh.name?.toLowerCase()
-                      )
-                      if (idx !== -1 && enh.additionalNotes) {
-                        ancestorsToAdd[idx].notes += '\n\n' + enh.additionalNotes
+                      if (insight.suggestedSources && insight.suggestedSources.length > 0) {
+                        insightLines.push('\n\n📚 SUGGESTED SOURCES:')
+                        insight.suggestedSources.forEach((src: string) => {
+                          insightLines.push(`• ${src}`)
+                        })
+                      }
+
+                      if (insight.missingInfo && insight.missingInfo.length > 0) {
+                        insightLines.push('\n\n❓ GAPS TO FILL:')
+                        insight.missingInfo.forEach((gap: string) => {
+                          insightLines.push(`• ${gap}`)
+                        })
+                      }
+
+                      if (insightLines.length > 0) {
+                        ancestorsToAdd[idx].notes += insightLines.join('\n')
                       }
                     }
                   }
                 }
-              } catch {
-                // Enhancement parsing failed, continue without it
+
+                // Add suggested additional relatives
+                if (result.suggestedRelatives && result.suggestedRelatives.length > 0) {
+                  send({ type: 'progress', progress: 40, message: `Found ${result.suggestedRelatives.length} potential relatives to research...` })
+
+                  for (const suggested of result.suggestedRelatives) {
+                    // Check if this person already exists
+                    const exists = ancestorsToAdd.some(a =>
+                      a.givenNames?.toLowerCase() === suggested.givenNames?.toLowerCase() &&
+                      a.surname?.toLowerCase() === suggested.surname?.toLowerCase()
+                    )
+
+                    if (!exists && suggested.givenNames && suggested.surname) {
+                      ancestorsToAdd.push({
+                        givenNames: suggested.givenNames,
+                        surname: suggested.surname,
+                        gender: suggested.gender || inferGender(suggested.givenNames) as 'male' | 'female' | 'unknown',
+                        birthDate: suggested.birthYear || null,
+                        birthPlace: suggested.birthPlace || null,
+                        deathDate: suggested.deathYear || null,
+                        deathPlace: null,
+                        notes: `⚠️ SUGGESTED BY AI - NEEDS VERIFICATION\n\nRelationship: ${suggested.relationship || 'Unknown'}\n\nReason suggested: ${suggested.reason || 'Based on family patterns'}\n\nResearch tips: ${suggested.researchTips || 'Check census and vital records'}`,
+                        relationship: suggested.relationship || 'Suggested relative',
+                        parentOf: [],
+                        childOf: { father: null, mother: null },
+                        confidence: 'low' as const,
+                      })
+                    }
+                  }
+                }
+
+                // Add discovered sources
+                if (result.recommendedSources && result.recommendedSources.length > 0) {
+                  sourcesChecked = [...sourcesChecked, ...result.recommendedSources]
+                }
+
+                // Store family summary if provided
+                if (result.familySummary) {
+                  // Add summary to first ancestor
+                  if (ancestorsToAdd.length > 0) {
+                    ancestorsToAdd[0].notes = `📜 FAMILY OVERVIEW:\n${result.familySummary}\n\n${ancestorsToAdd[0].notes}`
+                  }
+                }
               }
-            } catch {
-              // Enhancement failed, continue without it
+            } catch (parseError) {
+              console.error('AI analysis parse error:', parseError)
+              // Continue without AI enhancements
             }
+          } catch (aiError) {
+            console.error('AI analysis failed:', aiError)
+            // Continue without AI enhancements - still have the base data
           }
         } else {
           // Minimal seed data - do AI research
@@ -402,20 +471,76 @@ function inferGender(givenNames: string): 'male' | 'female' | 'unknown' {
   return 'unknown'
 }
 
-function buildEnhancementPrompt(ancestors: SeedAncestor[], additionalContext: string): string {
-  const names = ancestors.map(a => `${a.givenNames} ${a.surname}`).join(', ')
+function buildAnalysisPrompt(ancestors: SeedAncestor[], additionalContext?: string): string {
+  // Select a representative sample if too many ancestors
+  const sampleAncestors = ancestors.slice(0, 20)
 
-  return `Based on this additional family context, provide brief historical notes for these ancestors: ${names}
+  const ancestorSummary = sampleAncestors.map(a => {
+    const parts = []
+    parts.push(`${a.givenNames} ${a.surname}`)
+    if (a.birthYear) parts.push(`b.${a.birthYear}`)
+    if (a.birthPlace) parts.push(`in ${a.birthPlace}`)
+    if (a.deathYear) parts.push(`d.${a.deathYear}`)
+    if (a.relationship) parts.push(`(${a.relationship})`)
+    return parts.join(' ')
+  }).join('\n')
 
-CONTEXT:
-${additionalContext.slice(0, 2000)}
+  // Identify patterns in the data
+  const places = [...new Set(ancestors.filter(a => a.birthPlace).map(a => a.birthPlace))]
+  const surnames = [...new Set(ancestors.map(a => a.surname).filter(Boolean))]
+  const timeRange = {
+    earliest: Math.min(...ancestors.filter(a => a.birthYear).map(a => parseInt(a.birthYear) || 9999)),
+    latest: Math.max(...ancestors.filter(a => a.birthYear).map(a => parseInt(a.birthYear) || 0)),
+  }
+
+  return `You are an expert genealogist analyzing a family tree with ${ancestors.length} people.
+
+FAMILY DATA (sample of ${sampleAncestors.length}):
+${ancestorSummary}
+
+KEY PATTERNS:
+- Surnames: ${surnames.join(', ')}
+- Locations: ${places.join(', ')}
+- Time period: approximately ${timeRange.earliest}-${timeRange.latest}
+
+${additionalContext ? `ADDITIONAL CONTEXT:\n${additionalContext.slice(0, 1500)}\n` : ''}
+
+Analyze this family and provide:
+
+1. Research insights for key ancestors (suggest specific sources and strategies)
+2. Identify missing relatives (spouses, siblings, parents who should exist but aren't listed)
+3. Flag gaps in the data that need research
+4. Recommend the most valuable sources for this specific family
 
 Respond with JSON only:
 {
-  "enhancements": [
-    { "name": "Full Name", "additionalNotes": "Brief relevant historical context (1-2 sentences)" }
+  "familySummary": "2-3 sentence overview of the family patterns and migration",
+  "ancestorInsights": [
+    {
+      "name": "John Smith",
+      "researchTips": "Specific research strategy for this person",
+      "suggestedSources": ["Source 1 with repository", "Source 2"],
+      "missingInfo": ["Birth date needed", "Parents unknown"]
+    }
+  ],
+  "suggestedRelatives": [
+    {
+      "givenNames": "Unknown",
+      "surname": "Smith",
+      "relationship": "Father of John Smith",
+      "birthYear": "1820",
+      "birthPlace": "Location",
+      "reason": "Why this person likely exists",
+      "researchTips": "How to find them"
+    }
+  ],
+  "recommendedSources": [
+    "FamilySearch - US Census 1850-1880",
+    "Ancestry - Pennsylvania vital records"
   ]
-}`
+}
+
+Focus on providing ACTIONABLE research guidance. Include 5-10 ancestor insights and 3-8 suggested relatives.`
 }
 
 function buildResearchPrompt(seedAncestors: SeedAncestor[]): string {
