@@ -301,8 +301,9 @@ IMPORTANT: You must match relationship mentions to actual people in the tree by 
     })
   } catch (error) {
     console.error('Relationship detection error:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     return NextResponse.json(
-      { error: 'Failed to detect relationships' },
+      { error: `Failed to detect relationships: ${errorMessage}` },
       { status: 500 }
     )
   }

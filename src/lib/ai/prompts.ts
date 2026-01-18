@@ -5,6 +5,13 @@ export function buildResearchPlanPrompt(ancestor: AncestorWithContext): string {
   const birthYear = ancestor.birth_date ? parseInt(ancestor.birth_date.match(/\d{4}/)?.[0] || '0') : 0
   const deathYear = ancestor.death_date ? parseInt(ancestor.death_date.match(/\d{4}/)?.[0] || '0') : 0
   const lifespan = birthYear && deathYear ? `${birthYear}-${deathYear}` : birthYear ? `born ${birthYear}` : ''
+  const currentYear = new Date().getFullYear()
+
+  // Determine if the person could have living relatives
+  const couldHaveLivingSpouse = !deathYear || (deathYear > currentYear - 50)
+  const couldHaveLivingChildren = birthYear > 1920 || (!birthYear && !deathYear)
+  const couldHaveLivingGrandchildren = birthYear > 1880 || (!birthYear && !deathYear)
+  const personMightBeLiving = !deathYear && birthYear && birthYear > currentYear - 110
 
   // Group facts by type for clearer analysis
   const factsByType = ancestor.facts.reduce((acc, f) => {
@@ -53,6 +60,13 @@ ${ancestor.sources_checked.length === 0 ? 'No sources have been checked yet' : '
 ## Recent Research Activity Log
 ${ancestor.research_log.length > 0 ? ancestor.research_log.slice(0, 8).map(l => `- [${new Date(l.log_date).toLocaleDateString()}] ${l.entry_text}`).join('\n') : 'No research log entries'}
 
+## Living Relatives - IMPORTANT CONTEXT
+${personMightBeLiving ? `⚠️ **THIS PERSON MAY STILL BE LIVING** (born ${birthYear}, no death date recorded). Be sensitive about privacy.` : ''}
+${couldHaveLivingSpouse ? `- **Spouse may be living** - A spouse or partner could provide direct memories, photos, documents, and family stories.` : ''}
+${couldHaveLivingChildren ? `- **Children likely living** - Direct descendants are often the BEST source of information about parents. They may have birth certificates, marriage records, photos, family bibles, and personal knowledge.` : ''}
+${couldHaveLivingGrandchildren ? `- **Grandchildren could be living** - Even if children have passed, grandchildren often have inherited documents and photos.` : ''}
+${!couldHaveLivingSpouse && !couldHaveLivingChildren && !couldHaveLivingGrandchildren ? '- This person lived long enough ago that direct living relatives are unlikely.' : ''}
+
 ## Your Contextual Research Plan
 
 CRITICAL: Your recommendations MUST:
@@ -61,6 +75,7 @@ CRITICAL: Your recommendations MUST:
 3. **Address the goals** - Directly address the active research goals listed above
 4. **Support hypotheses** - Suggest records that could prove or disprove the working hypotheses
 5. **Be location-specific** - Reference the actual places: ${[ancestor.birth_place, ancestor.death_place].filter(Boolean).join(', ') || 'locations TBD'}
+6. **CONTACT LIVING RELATIVES FIRST** - If the "Living Relatives" section above indicates living relatives exist, your TOP recommendation should be to find and contact them. Living relatives are the single best source of information for recent ancestors.
 
 Generate a research plan with 5-8 specific next steps:
 
@@ -71,7 +86,7 @@ Respond in this JSON format:
     {
       "priority": 1,
       "source_name": "Specific source (e.g., '${birthYear ? birthYear + ' Federal Census, ' : ''}${ancestor.birth_place || '[County], [State]'}')",
-      "source_type": "census|vital|church|military|land|probate|newspaper|immigration|dna|other",
+      "source_type": "living_relatives|census|vital|church|military|land|probate|newspaper|immigration|dna|social_media|other",
       "repository": "Where to find it (Ancestry, FamilySearch, specific archive)",
       "rationale": "How this connects to the known facts and goals - be specific!",
       "likelihood": "low|medium|high|very_high",

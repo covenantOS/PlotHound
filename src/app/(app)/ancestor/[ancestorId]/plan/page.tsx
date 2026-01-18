@@ -256,43 +256,9 @@ export default function ResearchPlanPage() {
       </div>
 
       <div className="p-6">
-        {!plan ? (
-          <Card className="max-w-xl mx-auto">
-            <CardContent className="py-12 text-center">
-              <Sparkles className="mx-auto h-16 w-16 text-primary/50 mb-4" />
-              <h3 className="text-lg font-medium mb-2">No Research Plan Yet</h3>
-              <p className="text-muted-foreground mb-6">
-                Generate an AI-powered research plan based on what you know and what you have already tried.
-              </p>
-              <Button onClick={generatePlan} disabled={isGenerating}>
-                {isGenerating ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="mr-2 h-4 w-4" />
-                    Generate Research Plan
-                  </>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-6 max-w-4xl mx-auto">
-            {/* Summary */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Research Strategy</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p>{plan.summary}</p>
-              </CardContent>
-            </Card>
-
-            {/* AI Agent Research */}
-            <Card className="border-primary/30 bg-primary/5">
+        <div className="space-y-6 max-w-4xl mx-auto">
+          {/* AI Agent Research - Always visible */}
+          <Card className="border-primary/30 bg-primary/5">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Bot className="h-5 w-5 text-primary" />
@@ -410,111 +376,148 @@ export default function ResearchPlanPage() {
               </CardContent>
             </Card>
 
-            {/* Steps */}
-            <div>
-              <h2 className="font-serif text-xl font-bold mb-4">
-                Recommended Steps ({completedSteps.size}/{plan.steps.length} completed)
-              </h2>
-              <div className="space-y-4">
-                {plan.steps.map((step, index) => (
-                  <Card
-                    key={index}
-                    className={completedSteps.has(index) ? 'opacity-60' : ''}
-                  >
-                    <CardHeader className="pb-2">
-                      <div className="flex items-start gap-3">
-                        <Checkbox
-                          checked={completedSteps.has(index)}
-                          onCheckedChange={() => toggleStep(index)}
-                          className="mt-1"
-                        />
-                        <div className="flex-1">
-                          <div className="flex items-start justify-between">
-                            <div>
-                              <Badge variant="outline" className="mb-2">
-                                Step {step.priority}
-                              </Badge>
-                              <CardTitle
-                                className={`text-base ${completedSteps.has(index) ? 'line-through' : ''}`}
-                              >
-                                {step.source_name}
-                              </CardTitle>
-                              <CardDescription>
-                                {step.repository}
-                              </CardDescription>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span
-                                className={`h-2 w-2 rounded-full ${LIKELIHOOD_COLORS[step.likelihood]}`}
-                                title={LIKELIHOOD_LABELS[step.likelihood]}
-                              />
-                              <span className="text-sm text-muted-foreground">
-                                {step.likelihood_percent}%
-                              </span>
+          {/* Research Plan Section */}
+          {!plan ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <Sparkles className="mx-auto h-16 w-16 text-primary/50 mb-4" />
+                <h3 className="text-lg font-medium mb-2">No Research Plan Yet</h3>
+                <p className="text-muted-foreground mb-6">
+                  Generate an AI-powered research plan based on what you know and what you have already tried.
+                </p>
+                <Button onClick={generatePlan} disabled={isGenerating}>
+                  {isGenerating ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="mr-2 h-4 w-4" />
+                      Generate Research Plan
+                    </>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              {/* Summary */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Research Strategy</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p>{plan.summary}</p>
+                </CardContent>
+              </Card>
+
+              {/* Steps */}
+              <div>
+                <h2 className="font-serif text-xl font-bold mb-4">
+                  Recommended Steps ({completedSteps.size}/{plan.steps.length} completed)
+                </h2>
+                <div className="space-y-4">
+                  {plan.steps.map((step, index) => (
+                    <Card
+                      key={index}
+                      className={completedSteps.has(index) ? 'opacity-60' : ''}
+                    >
+                      <CardHeader className="pb-2">
+                        <div className="flex items-start gap-3">
+                          <Checkbox
+                            checked={completedSteps.has(index)}
+                            onCheckedChange={() => toggleStep(index)}
+                            className="mt-1"
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-start justify-between">
+                              <div>
+                                <Badge variant="outline" className="mb-2">
+                                  Step {step.priority}
+                                </Badge>
+                                <CardTitle
+                                  className={`text-base ${completedSteps.has(index) ? 'line-through' : ''}`}
+                                >
+                                  {step.source_name}
+                                </CardTitle>
+                                <CardDescription>
+                                  {step.repository}
+                                </CardDescription>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`h-2 w-2 rounded-full ${LIKELIHOOD_COLORS[step.likelihood]}`}
+                                  title={LIKELIHOOD_LABELS[step.likelihood]}
+                                />
+                                <span className="text-sm text-muted-foreground">
+                                  {step.likelihood_percent}%
+                                </span>
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="pl-10">
-                      <p className="text-sm text-muted-foreground mb-3">
-                        {step.rationale}
-                      </p>
-                      {step.tips && (
-                        <div className="flex items-start gap-2 text-sm bg-muted p-2 rounded-md mb-3">
-                          <Lightbulb className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
-                          <p>{step.tips}</p>
-                        </div>
-                      )}
-                      <div className="flex items-center gap-4 text-sm">
-                        <span className="flex items-center gap-1 text-muted-foreground">
-                          <Clock className="h-4 w-4" />
-                          ~{step.estimated_minutes} min
-                        </span>
-                        <Badge variant="outline" className="capitalize">
-                          {step.source_type}
-                        </Badge>
-                        {step.url && (
-                          <a
-                            href={step.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1 text-primary hover:underline"
-                          >
-                            <ExternalLink className="h-4 w-4" />
-                            Open Source
-                          </a>
+                      </CardHeader>
+                      <CardContent className="pl-10">
+                        <p className="text-sm text-muted-foreground mb-3">
+                          {step.rationale}
+                        </p>
+                        {step.tips && (
+                          <div className="flex items-start gap-2 text-sm bg-muted p-2 rounded-md mb-3">
+                            <Lightbulb className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
+                            <p>{step.tips}</p>
+                          </div>
                         )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                        <div className="flex items-center gap-4 text-sm">
+                          <span className="flex items-center gap-1 text-muted-foreground">
+                            <Clock className="h-4 w-4" />
+                            ~{step.estimated_minutes} min
+                          </span>
+                          <Badge variant="outline" className="capitalize">
+                            {step.source_type}
+                          </Badge>
+                          {step.url && (
+                            <a
+                              href={step.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-primary hover:underline"
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                              Open Source
+                            </a>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
               </div>
-            </div>
 
-            {/* Alternative Approaches */}
-            {plan.alternative_approaches && plan.alternative_approaches.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Alternative Approaches</CardTitle>
-                  <CardDescription>
-                    If the main steps do not yield results, consider these alternatives
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ul className="space-y-2">
-                    {plan.alternative_approaches.map((approach, index) => (
-                      <li key={index} className="flex items-start gap-2">
-                        <span className="text-primary">-</span>
-                        <span>{approach}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        )}
+              {/* Alternative Approaches */}
+              {plan.alternative_approaches && plan.alternative_approaches.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Alternative Approaches</CardTitle>
+                    <CardDescription>
+                      If the main steps do not yield results, consider these alternatives
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ul className="space-y-2">
+                      {plan.alternative_approaches.map((approach, index) => (
+                        <li key={index} className="flex items-start gap-2">
+                          <span className="text-primary">-</span>
+                          <span>{approach}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   )
