@@ -16,15 +16,22 @@ export default async function AppLayout({
     redirect('/login')
   }
 
-  // Fetch user's trees for sidebar
-  const { data: trees } = await supabase
-    .from('trees')
-    .select('id, name')
-    .order('updated_at', { ascending: false })
+  // Fetch user's trees and profile for sidebar
+  const [{ data: trees }, { data: profile }] = await Promise.all([
+    supabase
+      .from('trees')
+      .select('id, name')
+      .order('updated_at', { ascending: false }),
+    supabase
+      .from('profiles')
+      .select('subscription_tier')
+      .eq('id', user.id)
+      .single(),
+  ])
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar trees={trees || []} />
+      <Sidebar trees={trees || []} subscriptionTier={(profile as { subscription_tier: string } | null)?.subscription_tier || 'free'} />
       <main className="flex flex-1 flex-col overflow-hidden">
         {children}
       </main>

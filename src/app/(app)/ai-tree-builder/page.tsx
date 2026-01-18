@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Header } from '@/components/layout/header'
@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { useToast } from '@/components/ui/use-toast'
@@ -25,6 +24,9 @@ import {
   Users,
   AlertCircle,
   Crown,
+  Upload,
+  FileText,
+  PenLine,
 } from 'lucide-react'
 import type { SubscriptionTier } from '@/types/database'
 
@@ -36,6 +38,7 @@ interface SeedAncestor {
   birthPlace: string
   deathYear: string
   relationship: string
+  notes?: string
 }
 
 interface ResearchResult {
@@ -47,6 +50,7 @@ interface ResearchResult {
 }
 
 type BuilderStep = 'input' | 'researching' | 'complete'
+type InputMode = 'manual' | 'upload'
 
 const EMPTY_ANCESTOR: SeedAncestor = {
   id: '',
@@ -67,18 +71,36 @@ const RELATIONSHIPS = [
   'Spouse',
 ]
 
+const ACCEPTED_FILE_TYPES = [
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'text/plain',
+  'text/csv',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/msword',
+]
+
 export default function AiTreeBuilderPage() {
   const [step, setStep] = useState<BuilderStep>('input')
+  const [inputMode, setInputMode] = useState<InputMode>('manual')
   const [treeName, setTreeName] = useState('')
   const [seedAncestors, setSeedAncestors] = useState<SeedAncestor[]>([
     { ...EMPTY_ANCESTOR, id: '1', relationship: 'Self (Starting Point)' },
   ])
   const [isLoading, setIsLoading] = useState(false)
+  const [isParsingFile, setIsParsingFile] = useState(false)
   const [progress, setProgress] = useState(0)
   const [progressMessage, setProgressMessage] = useState('')
   const [result, setResult] = useState<ResearchResult | null>(null)
   const [profile, setProfile] = useState<{ subscription_tier: SubscriptionTier } | null>(null)
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null)
+  const [additionalContext, setAdditionalContext] = useState('')
+  const [isDragging, setIsDragging] = useState(false)
 
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
   const { toast } = useToast()
   const supabase = createClient()
@@ -103,7 +125,7 @@ export default function AiTreeBuilderPage() {
     ['researcher', 'investigator', 'professional'].includes(profile.subscription_tier)
 
   const addAncestor = () => {
-    if (seedAncestors.length >= 5) return
+    if (seedAncestors.length >= 20) return
     setSeedAncestors([
       ...seedAncestors,
       { ...EMPTY_ANCESTOR, id: Date.now().toString() },
@@ -124,6 +146,125 @@ export default function AiTreeBuilderPage() {
   const isValidInput = () => {
     if (!treeName.trim()) return false
     return seedAncestors.some(a => a.givenNames.trim() || a.surname.trim())
+  }
+
+  const handleFileSelect = async (file: File) => {
+    if (!ACCEPTED_FILE_TYPES.includes(file.type) &&
+        !file.name.endsWith('.pdf') &&
+        !file.name.endsWith('.docx') &&
+        !file.name.endsWith('.doc') &&
+        !file.name.endsWith('.txt') &&
+        !file.name.endsWith('.csv')) {
+      toast({
+        variant: 'destructive',
+        title: 'Unsupported File Type',
+        description: 'Please upload a PDF, Word doc, image, or text file.',
+      })
+      return
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast({
+        variant: 'destructive',
+        title: 'File Too Large',
+        description: 'Please upload a file smaller than 10MB.',
+      })
+      return
+    }
+
+    setUploadedFile(file)
+    setIsParsingFile(true)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const response = await fetch('/api/ai/parse-document', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to parse document')
+      }
+
+      const data = await response.json()
+
+      // Set the tree name if we got one
+      if (data.treeName && !treeName) {
+        setTreeName(data.treeName)
+      }
+
+      // Add parsed ancestors
+      if (data.ancestors && data.ancestors.length > 0) {
+        const newAncestors: SeedAncestor[] = data.ancestors.map((a: {
+          givenNames?: string
+          surname?: string
+          birthYear?: string
+          birthPlace?: string
+          deathYear?: string
+          relationship?: string
+          notes?: string
+        }, index: number) => ({
+          id: `parsed-${index}-${Date.now()}`,
+          givenNames: a.givenNames || '',
+          surname: a.surname || '',
+          birthYear: a.birthYear || '',
+          birthPlace: a.birthPlace || '',
+          deathYear: a.deathYear || '',
+          relationship: a.relationship || '',
+          notes: a.notes || '',
+        }))
+
+        setSeedAncestors(newAncestors)
+
+        toast({
+          title: 'Document Parsed',
+          description: `Found ${newAncestors.length} ancestor${newAncestors.length === 1 ? '' : 's'} in your document.`,
+        })
+      } else {
+        toast({
+          variant: 'destructive',
+          title: 'No Ancestors Found',
+          description: 'Could not extract ancestor information from this document.',
+        })
+      }
+
+      // Store additional context
+      if (data.additionalContext) {
+        setAdditionalContext(data.additionalContext)
+      }
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Parse Failed',
+        description: error instanceof Error ? error.message : 'Failed to parse document',
+      })
+      setUploadedFile(null)
+    } finally {
+      setIsParsingFile(false)
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+
+    const file = e.dataTransfer.files[0]
+    if (file) {
+      handleFileSelect(file)
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
   }
 
   const handleBuild = async () => {
@@ -147,6 +288,7 @@ export default function AiTreeBuilderPage() {
         body: JSON.stringify({
           treeName,
           seedAncestors: seedAncestors.filter(a => a.givenNames.trim() || a.surname.trim()),
+          additionalContext,
         }),
       })
 
@@ -204,7 +346,7 @@ export default function AiTreeBuilderPage() {
                 </div>
                 <h1 className="font-serif text-3xl font-bold">AI Tree Builder</h1>
                 <p className="text-muted-foreground mt-2 max-w-lg mx-auto">
-                  Give us 3-5 ancestors you know about, and our AI will research and build your family tree automatically
+                  Upload a document or enter ancestors manually, and our AI will research and build your family tree
                 </p>
               </div>
 
@@ -248,12 +390,121 @@ export default function AiTreeBuilderPage() {
                 </Card>
               )}
 
+              {/* Input Mode Toggle */}
+              <div className={!canUseAiBuilder ? 'opacity-60 pointer-events-none' : ''}>
+                <div className="flex gap-2 mb-4">
+                  <Button
+                    variant={inputMode === 'upload' ? 'default' : 'outline'}
+                    onClick={() => setInputMode('upload')}
+                    className="flex-1"
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Upload Document
+                  </Button>
+                  <Button
+                    variant={inputMode === 'manual' ? 'default' : 'outline'}
+                    onClick={() => setInputMode('manual')}
+                    className="flex-1"
+                  >
+                    <PenLine className="h-4 w-4 mr-2" />
+                    Enter Manually
+                  </Button>
+                </div>
+
+                {/* File Upload Section */}
+                {inputMode === 'upload' && (
+                  <Card className="mb-4">
+                    <CardHeader>
+                      <CardTitle className="text-lg">Upload Your Research</CardTitle>
+                      <CardDescription>
+                        Upload a PDF, Word doc, image, or text file with genealogy data.
+                        The AI will extract ancestor information automatically.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div
+                        className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                          isDragging ? 'border-primary bg-primary/5' : 'border-muted-foreground/25'
+                        } ${isParsingFile ? 'pointer-events-none opacity-60' : 'cursor-pointer hover:border-primary/50'}`}
+                        onDrop={handleDrop}
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          className="hidden"
+                          accept=".pdf,.doc,.docx,.txt,.csv,.jpg,.jpeg,.png,.gif,.webp"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            if (file) handleFileSelect(file)
+                          }}
+                        />
+
+                        {isParsingFile ? (
+                          <div className="space-y-3">
+                            <Loader2 className="h-10 w-10 mx-auto text-primary animate-spin" />
+                            <p className="text-sm text-muted-foreground">
+                              Analyzing document with AI...
+                            </p>
+                          </div>
+                        ) : uploadedFile ? (
+                          <div className="space-y-3">
+                            <FileText className="h-10 w-10 mx-auto text-primary" />
+                            <div>
+                              <p className="font-medium">{uploadedFile.name}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {(uploadedFile.size / 1024).toFixed(1)} KB
+                              </p>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setUploadedFile(null)
+                                setSeedAncestors([{ ...EMPTY_ANCESTOR, id: '1', relationship: 'Self (Starting Point)' }])
+                              }}
+                            >
+                              Remove & Upload Different File
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
+                            <div>
+                              <p className="font-medium">Drop your file here or click to browse</p>
+                              <p className="text-sm text-muted-foreground mt-1">
+                                PDF, Word, images, or text files up to 10MB
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="mt-4 p-3 bg-muted rounded-md">
+                        <p className="text-xs text-muted-foreground">
+                          <strong>Supported sources:</strong> Ancestry exports, FamilySearch PDFs,
+                          scanned documents, family letters, obituaries, census images, and more.
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+
               {/* Input Form */}
               <Card className={!canUseAiBuilder ? 'opacity-60 pointer-events-none' : ''}>
                 <CardHeader>
-                  <CardTitle>Your Starting Point</CardTitle>
+                  <CardTitle>
+                    {inputMode === 'upload' && uploadedFile ? 'Review Extracted Ancestors' : 'Your Starting Point'}
+                  </CardTitle>
                   <CardDescription>
-                    Enter what you know about your ancestors. The more details, the better the research.
+                    {inputMode === 'upload' && uploadedFile
+                      ? 'Review and edit the ancestors extracted from your document. Add more details if needed.'
+                      : 'Enter what you know about your ancestors. The more details, the better the research.'
+                    }
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
@@ -271,100 +522,120 @@ export default function AiTreeBuilderPage() {
                   {/* Seed Ancestors */}
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
-                      <Label>Seed Ancestors ({seedAncestors.length}/5)</Label>
-                      {seedAncestors.length < 5 && (
-                        <Button variant="outline" size="sm" onClick={addAncestor}>
-                          <Plus className="h-4 w-4 mr-1" />
-                          Add Ancestor
-                        </Button>
-                      )}
+                      <Label>
+                        {inputMode === 'upload' ? 'Extracted' : 'Seed'} Ancestors ({seedAncestors.length})
+                      </Label>
+                      <Button variant="outline" size="sm" onClick={addAncestor}>
+                        <Plus className="h-4 w-4 mr-1" />
+                        Add Ancestor
+                      </Button>
                     </div>
 
-                    {seedAncestors.map((ancestor, index) => (
-                      <Card key={ancestor.id} className="border-dashed">
-                        <CardHeader className="py-3">
-                          <div className="flex items-center justify-between">
-                            <Badge variant="secondary">Ancestor {index + 1}</Badge>
-                            {seedAncestors.length > 1 && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeAncestor(ancestor.id)}
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
+                    <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+                      {seedAncestors.map((ancestor, index) => (
+                        <Card key={ancestor.id} className="border-dashed">
+                          <CardHeader className="py-3">
+                            <div className="flex items-center justify-between">
+                              <Badge variant="secondary">
+                                {ancestor.givenNames || ancestor.surname
+                                  ? `${ancestor.givenNames} ${ancestor.surname}`.trim()
+                                  : `Ancestor ${index + 1}`
+                                }
+                              </Badge>
+                              {seedAncestors.length > 1 && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => removeAncestor(ancestor.id)}
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </div>
+                          </CardHeader>
+                          <CardContent className="py-2 space-y-3">
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1">
+                                <Label className="text-xs">Given Names</Label>
+                                <Input
+                                  placeholder="John William"
+                                  value={ancestor.givenNames}
+                                  onChange={(e) => updateAncestor(ancestor.id, 'givenNames', e.target.value)}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Surname</Label>
+                                <Input
+                                  placeholder="Smith"
+                                  value={ancestor.surname}
+                                  onChange={(e) => updateAncestor(ancestor.id, 'surname', e.target.value)}
+                                />
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-3">
+                              <div className="space-y-1">
+                                <Label className="text-xs">Birth Year</Label>
+                                <Input
+                                  placeholder="1850"
+                                  value={ancestor.birthYear}
+                                  onChange={(e) => updateAncestor(ancestor.id, 'birthYear', e.target.value)}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Death Year</Label>
+                                <Input
+                                  placeholder="1920"
+                                  value={ancestor.deathYear}
+                                  onChange={(e) => updateAncestor(ancestor.id, 'deathYear', e.target.value)}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Relationship</Label>
+                                <select
+                                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+                                  value={ancestor.relationship}
+                                  onChange={(e) => updateAncestor(ancestor.id, 'relationship', e.target.value)}
+                                >
+                                  <option value="">Select...</option>
+                                  {RELATIONSHIPS.map(r => (
+                                    <option key={r} value={r}>{r}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Birth Place</Label>
+                              <Input
+                                placeholder="Boston, Massachusetts, USA"
+                                value={ancestor.birthPlace}
+                                onChange={(e) => updateAncestor(ancestor.id, 'birthPlace', e.target.value)}
+                              />
+                            </div>
+                            {ancestor.notes && (
+                              <div className="p-2 bg-muted rounded text-xs text-muted-foreground">
+                                <strong>Notes from document:</strong> {ancestor.notes}
+                              </div>
                             )}
-                          </div>
-                        </CardHeader>
-                        <CardContent className="py-2 space-y-3">
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-1">
-                              <Label className="text-xs">Given Names</Label>
-                              <Input
-                                placeholder="John William"
-                                value={ancestor.givenNames}
-                                onChange={(e) => updateAncestor(ancestor.id, 'givenNames', e.target.value)}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Surname</Label>
-                              <Input
-                                placeholder="Smith"
-                                value={ancestor.surname}
-                                onChange={(e) => updateAncestor(ancestor.id, 'surname', e.target.value)}
-                              />
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-3 gap-3">
-                            <div className="space-y-1">
-                              <Label className="text-xs">Birth Year</Label>
-                              <Input
-                                placeholder="1850"
-                                value={ancestor.birthYear}
-                                onChange={(e) => updateAncestor(ancestor.id, 'birthYear', e.target.value)}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Death Year</Label>
-                              <Input
-                                placeholder="1920"
-                                value={ancestor.deathYear}
-                                onChange={(e) => updateAncestor(ancestor.id, 'deathYear', e.target.value)}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Relationship</Label>
-                              <select
-                                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
-                                value={ancestor.relationship}
-                                onChange={(e) => updateAncestor(ancestor.id, 'relationship', e.target.value)}
-                              >
-                                <option value="">Select...</option>
-                                {RELATIONSHIPS.map(r => (
-                                  <option key={r} value={r}>{r}</option>
-                                ))}
-                              </select>
-                            </div>
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Birth Place</Label>
-                            <Input
-                              placeholder="Boston, Massachusetts, USA"
-                              value={ancestor.birthPlace}
-                              onChange={(e) => updateAncestor(ancestor.id, 'birthPlace', e.target.value)}
-                            />
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
                   </div>
+
+                  {additionalContext && (
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <p className="text-sm text-blue-800">
+                        <strong>Additional context from document:</strong> {additionalContext}
+                      </p>
+                    </div>
+                  )}
                 </CardContent>
                 <CardFooter>
                   <Button
                     className="w-full"
                     size="lg"
                     onClick={handleBuild}
-                    disabled={!isValidInput() || isLoading || !canUseAiBuilder}
+                    disabled={!isValidInput() || isLoading || !canUseAiBuilder || isParsingFile}
                   >
                     <Sparkles className="mr-2 h-5 w-5" />
                     Build My Family Tree with AI
@@ -381,7 +652,7 @@ export default function AiTreeBuilderPage() {
                   <ol className="space-y-3 text-sm">
                     <li className="flex gap-3">
                       <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-medium">1</span>
-                      <span>Enter ancestors you know (names, dates, places)</span>
+                      <span>Upload a document or enter ancestors you know (names, dates, places)</span>
                     </li>
                     <li className="flex gap-3">
                       <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-medium">2</span>
@@ -480,6 +751,9 @@ export default function AiTreeBuilderPage() {
                       setTreeName('')
                       setSeedAncestors([{ ...EMPTY_ANCESTOR, id: '1', relationship: 'Self (Starting Point)' }])
                       setResult(null)
+                      setUploadedFile(null)
+                      setAdditionalContext('')
+                      setInputMode('manual')
                     }}
                   >
                     Build Another Tree

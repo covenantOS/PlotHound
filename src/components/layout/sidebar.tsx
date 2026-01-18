@@ -31,9 +31,10 @@ const navigation = [
 interface SidebarProps {
   trees?: { id: string; name: string }[]
   currentTreeId?: string
+  subscriptionTier?: string
 }
 
-export function Sidebar({ trees = [], currentTreeId }: SidebarProps) {
+export function Sidebar({ trees = [], currentTreeId, subscriptionTier = 'free' }: SidebarProps) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
 
@@ -117,7 +118,7 @@ export function Sidebar({ trees = [], currentTreeId }: SidebarProps) {
         )}
       </ScrollArea>
 
-      {!collapsed && (
+      {!collapsed && subscriptionTier === 'free' && (
         <div className="border-t p-4">
           <div className="rounded-lg bg-gradient-to-r from-primary/10 to-accent/10 p-3">
             <div className="flex items-center gap-2">
