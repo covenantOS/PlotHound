@@ -39,6 +39,12 @@ export function TreeViewsWrapper({ ancestors, treeId }: TreeViewsWrapperProps) {
 
       const data = await response.json()
 
+      // Log debug info to console for troubleshooting
+      console.log('[detect-relationships] Full response:', data)
+      if (data.debug) {
+        console.log('[detect-relationships] Debug info:', data.debug)
+      }
+
       if (!response.ok) {
         throw new Error(data.error || 'Failed to detect relationships')
       }
@@ -51,7 +57,19 @@ export function TreeViewsWrapper({ ancestors, treeId }: TreeViewsWrapperProps) {
         const moreCount = data.updatedRelationships.length - 3
         description = updates + (moreCount > 0 ? ` and ${moreCount} more` : '')
       } else if (data.relationshipsDetected === 0) {
-        description = 'No new relationships could be detected from the available data.'
+        // Add more context for why no relationships were found
+        const debugInfo = data.debug
+        if (debugInfo) {
+          if (debugInfo.ancestorsWithNotes === 0) {
+            description = 'No notes found on ancestors. Add notes with relationship info (e.g., "son of John Smith") to help detect relationships.'
+          } else if (debugInfo.existingRelationships === data.analyzed) {
+            description = 'All ancestors already have relationships assigned.'
+          } else {
+            description = `Checked ${debugInfo.ancestorsWithNotes} ancestors with notes but couldn\'t match relationships. The mentioned people may not be in the tree yet.`
+          }
+        } else {
+          description = 'No new relationships could be detected from the available data.'
+        }
       } else {
         description = `Found ${data.relationshipsDetected} potential relationships, ${data.updated} were new.`
       }

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { getAIConfig, createCompletion } from '@/lib/ai/provider'
 import type { Ancestor, Fact } from '@/types/database'
@@ -76,6 +77,15 @@ export async function POST(request: Request) {
     // Build the prompt for AI analysis - now includes notes and facts
     const prompt = buildRelationshipDetectionPrompt(ancestors)
 
+    // Log sample data for debugging
+    console.log('[detect-relationships] Analyzing', ancestors.length, 'ancestors')
+    const sampleData = ancestors.slice(0, 3).map(a => ({
+      name: [a.given_names, a.surname].filter(Boolean).join(' '),
+      notes: a.notes ? a.notes.substring(0, 100) + '...' : '(no notes)',
+      factsCount: a.facts?.length || 0,
+    }))
+    console.log('[detect-relationships] Sample data:', JSON.stringify(sampleData, null, 2))
+
     // Call AI
     const result = await createCompletion(aiConfig, {
       system: `You are an expert genealogist analyzing family relationships. Your PRIMARY job is to extract relationships from the notes, facts, and contextual data provided.
@@ -111,6 +121,12 @@ IMPORTANT: You must match relationship mentions to actual people in the tree by 
 
     const analysisResult = JSON.parse(jsonMatch[0])
     const relationships: DetectedRelationship[] = analysisResult.relationships || []
+
+    console.log('[detect-relationships] AI response summary:', analysisResult.summary)
+    console.log('[detect-relationships] Detected', relationships.length, 'relationships')
+    if (relationships.length > 0) {
+      console.log('[detect-relationships] First relationship:', JSON.stringify(relationships[0], null, 2))
+    }
 
     // Update ancestors with detected relationships
     let updatedCount = 0
@@ -192,6 +208,16 @@ IMPORTANT: You must match relationship mentions to actual people in the tree by 
       }
     }
 
+    console.log('[detect-relationships] Updated', updatedCount, 'ancestors')
+    console.log('[detect-relationships] Update details:', updatedDetails)
+
+    // Revalidate the tree page to ensure fresh data
+    revalidatePath(`/tree/${treeId}`)
+
+    // Collect info about existing relationships for debugging
+    const existingRelationships = ancestors.filter(a => a.father_id || a.mother_id || (a.spouse_ids && a.spouse_ids.length > 0)).length
+    const ancestorsWithNotes = ancestors.filter(a => a.notes && a.notes.trim().length > 0).length
+
     return NextResponse.json({
       success: true,
       analyzed: ancestors.length,
@@ -199,6 +225,22 @@ IMPORTANT: You must match relationship mentions to actual people in the tree by 
       updated: updatedCount,
       summary: analysisResult.summary || 'Relationship analysis complete',
       updatedRelationships: updatedDetails,
+      debug: {
+        ancestorsWithNotes,
+        existingRelationships,
+        sampleNotes: ancestors.filter(a => a.notes).slice(0, 3).map(a => ({
+          name: [a.given_names, a.surname].filter(Boolean).join(' '),
+          notes: a.notes?.substring(0, 150),
+          hasParent: !!(a.father_id || a.mother_id)
+        })),
+        aiRelationships: relationships.slice(0, 5).map(r => ({
+          personId: r.personId,
+          fatherId: r.fatherId,
+          motherId: r.motherId,
+          confidence: r.confidence,
+          reasoning: r.reasoning?.substring(0, 100)
+        }))
+      },
       details: relationships.filter(r => r.confidence >= 70).map(r => ({
         person: ancestors.find(a => a.id === r.personId),
         ...r
