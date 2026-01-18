@@ -49,8 +49,8 @@ export function EditAncestorDialog({ ancestor, children, treeAncestors: initialA
   const [open, setOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [gender, setGender] = useState<string>(ancestor.gender || '')
-  const [fatherId, setFatherId] = useState<string>(ancestor.father_id || '')
-  const [motherId, setMotherId] = useState<string>(ancestor.mother_id || '')
+  const [fatherId, setFatherId] = useState<string>(ancestor.father_id || 'none')
+  const [motherId, setMotherId] = useState<string>(ancestor.mother_id || 'none')
   const [spouseIds, setSpouseIds] = useState<string[]>(ancestor.spouse_ids || [])
   const [treeAncestors, setTreeAncestors] = useState<Ancestor[]>(initialAncestors || [])
   const [loadingAncestors, setLoadingAncestors] = useState(false)
@@ -123,8 +123,8 @@ export function EditAncestorDialog({ ancestor, children, treeAncestors: initialA
         death_date: formData.get('death_date') as string || null,
         death_place: formData.get('death_place') as string || null,
         notes: formData.get('notes') as string || null,
-        father_id: fatherId || null,
-        mother_id: motherId || null,
+        father_id: fatherId === 'none' ? null : fatherId,
+        mother_id: motherId === 'none' ? null : motherId,
         spouse_ids: spouseIds,
       })
       .eq('id', ancestor.id)
@@ -302,7 +302,7 @@ export function EditAncestorDialog({ ancestor, children, treeAncestors: initialA
                       <SelectValue placeholder={loadingAncestors ? "Loading..." : "Select father"} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
                       {maleAncestors.map(a => (
                         <SelectItem key={a.id} value={a.id}>
                           {[a.given_names, a.surname].filter(Boolean).join(' ') || 'Unknown'}
@@ -323,7 +323,7 @@ export function EditAncestorDialog({ ancestor, children, treeAncestors: initialA
                       <SelectValue placeholder={loadingAncestors ? "Loading..." : "Select mother"} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
                       {femaleAncestors.map(a => (
                         <SelectItem key={a.id} value={a.id}>
                           {[a.given_names, a.surname].filter(Boolean).join(' ') || 'Unknown'}
@@ -354,29 +354,28 @@ export function EditAncestorDialog({ ancestor, children, treeAncestors: initialA
                     ))}
                   </div>
                 )}
-                <div className="flex gap-2">
-                  <Select
-                    value=""
-                    onValueChange={addSpouse}
-                    disabled={isLoading || loadingAncestors || potentialSpouses.length === 0}
-                  >
-                    <SelectTrigger className="flex-1">
-                      <SelectValue placeholder={
-                        loadingAncestors ? "Loading..." :
-                        potentialSpouses.length === 0 ? "No available spouses" :
-                        "Add spouse..."
-                      } />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {potentialSpouses.map(a => (
-                        <SelectItem key={a.id} value={a.id}>
-                          {[a.given_names, a.surname].filter(Boolean).join(' ') || 'Unknown'}
-                          {a.birth_date && ` (b. ${a.birth_date})`}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                {potentialSpouses.length > 0 && (
+                  <div className="flex gap-2">
+                    <Select
+                      value="placeholder"
+                      onValueChange={(val) => val !== 'placeholder' && addSpouse(val)}
+                      disabled={isLoading || loadingAncestors}
+                    >
+                      <SelectTrigger className="flex-1">
+                        <SelectValue placeholder={loadingAncestors ? "Loading..." : "Add spouse..."} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="placeholder" disabled>Add spouse...</SelectItem>
+                        {potentialSpouses.map(a => (
+                          <SelectItem key={a.id} value={a.id}>
+                            {[a.given_names, a.surname].filter(Boolean).join(' ') || 'Unknown'}
+                            {a.birth_date && ` (b. ${a.birth_date})`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
             </div>
 

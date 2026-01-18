@@ -9,7 +9,6 @@ import {
   Dog,
   LayoutDashboard,
   TreePine,
-  Users,
   BrickWall,
   Settings,
   Sparkles,
