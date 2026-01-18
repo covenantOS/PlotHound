@@ -39,7 +39,7 @@ export default async function AppLayout({
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Desktop sidebar - hidden on mobile */}
-      <div className="hidden md:block">
+      <div className="hidden md:flex h-full">
         <Sidebar trees={trees || []} subscriptionTier={subscriptionTier} />
       </div>
 

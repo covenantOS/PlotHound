@@ -41,7 +41,7 @@ export function Sidebar({ trees = [], currentTreeId, subscriptionTier = 'free' }
   return (
     <div
       className={cn(
-        'relative flex flex-col border-r bg-card transition-all duration-300',
+        'relative flex h-full flex-col border-r bg-card transition-all duration-300',
         collapsed ? 'w-16' : 'w-64'
       )}
     >
